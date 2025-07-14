@@ -14,7 +14,12 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    - name: Compile main.cpp
-      run: g++ -o main main.cpp
-    - name: Run the program
-      run: ./main
+	- name: Install dependencies
+	  run: sudo apt install cmake libgtest-dev
+    - name: Build and run tests
+      run: |
+		mkdir build
+		cd build
+		cmake ..
+		make
+		./unit_tests
