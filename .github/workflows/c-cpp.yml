@@ -14,8 +14,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-	- name: Install dependencies
-	  run: sudo apt install cmake libgtest-dev
+    - name: Install dependencies
+      run: sudo apt install cmake libgtest-dev
     - name: Build and run tests
       run: |
 		mkdir build
