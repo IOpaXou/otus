@@ -18,8 +18,8 @@ jobs:
       run: sudo apt install cmake libgtest-dev
     - name: Build and run tests
       run: |
-		mkdir build
-		cd build
-		cmake ..
-		make
-		./unit_tests
+        mkdir build
+        cd build
+        cmake ..
+        make
+        ./unit_tests
