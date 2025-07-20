@@ -1,0 +1,25 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "Otus-Unit-Tests" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Install dependencies
+      run: sudo apt install cmake libgtest-dev
+    - name: Build and run tests
+      run: |
+        mkdir build
+        cd build
+        cmake ..
+        make
+        ./unit_tests
