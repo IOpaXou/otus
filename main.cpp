@@ -50,19 +50,18 @@ int main(int argc, char** argv)
 TEST(MoveTestSuite, MoveObject)
 {
 	constexpr Point FinalPos {5, 8};
-	
+
 	MovableObject mobj(InitialPos, InitialVelocity);
-	
+
 	Move move(mobj);
 	move.exec();
-	
+
 	ASSERT_EQ(mobj.getLocation(), FinalPos);
 }
 
 TEST(MoveTestSuite, MoveNoGetLocationObject)
 {
 	MovableButNotGetLocatable mobj;
-	
 	Move move(mobj);
 
 	EXPECT_THROW(move.exec(), std::runtime_error);

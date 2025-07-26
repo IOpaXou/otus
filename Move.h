@@ -6,7 +6,7 @@ class Move
 {
 public:
 	Move(IMovable& mObj) : _mObj(mObj) {}
-	
+
 	void exec()
 	{
 		const auto startLoc = _mObj.getLocation();
