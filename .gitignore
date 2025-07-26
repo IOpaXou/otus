@@ -1,1 +1,5 @@
+.vscode/
 build/
+MovableAdapter.h
+UObject.h
+UObjectImpl.h

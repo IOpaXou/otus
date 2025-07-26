@@ -2,7 +2,7 @@ name: C/C++ CI
 
 on:
   push:
-    branches: [ "Otus-Unit-Tests" ]
+    branches: [ "Otus-Stable-Abstractions-Test" ]
   pull_request:
     branches: [ "master" ]
 
@@ -22,4 +22,4 @@ jobs:
         cd build
         cmake ..
         make
-        ./unit_tests
+        ./stable_abstracts_tests
