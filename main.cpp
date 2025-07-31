@@ -241,6 +241,17 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 {
 	static HandlersInitializer initializer;
 
+	auto validateHandler = [](const auto& type) {
+    auto& data = ExceptionHandler::getData();
+    bool registered = std::any_of(data.begin(), data.end(), 
+        [&type](const auto& pair) { return pair.first.first == typeid(type); });
+    ASSERT_TRUE(registered) << "Handler for " << typeid(type).name() << " not registered";
+	};
+
+	validateHandler(FailedCommand(customExText));
+	validateHandler(RetryCommand{nullptr});
+	validateHandler(DoubleRetryCommand{nullptr});
+
 	const std::string failedCmdText = "DoubleRetryAndLogHandlerTest";
 
 	ICommandUPtr failedCmd = std::make_unique<FailedCommand>(failedCmdText);
