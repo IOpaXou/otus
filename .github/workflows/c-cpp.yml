@@ -22,4 +22,4 @@ jobs:
         cd build
         cmake ..
         make
-        ./exceptions_test
+        ./exceptions_tests
