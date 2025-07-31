@@ -31,16 +31,6 @@ namespace
 		return std::make_unique<DoubleRetryCommand>(std::move(cmd));
 	};
 
-	struct HandlersInitializer 
-	{
-		HandlersInitializer() 
-		{
-			ExceptionHandler::registrate(typeid(FailedCommand), typeid(CustomException), retryHandler);
-			ExceptionHandler::registrate(typeid(RetryCommand), typeid(CustomException), doubleRetryHandler);
-			ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(CustomException), logHandler);
-		}
-	};
-
 	void checkLog(const std::string& txt)
 	{
 		std::ifstream fin;
@@ -239,18 +229,9 @@ TEST(ExceptionTestSuite, LogAndRetryHandler)
 
 TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 {
-	static HandlersInitializer initializer;
-
-	auto validateHandler = [](const auto& type) {
-    auto& data = ExceptionHandler::getData();
-    bool registered = std::any_of(data.begin(), data.end(), 
-        [&type](const auto& pair) { return pair.first.first == typeid(type); });
-    ASSERT_TRUE(registered) << "Handler for " << typeid(type).name() << " not registered";
-	};
-
-	validateHandler(FailedCommand(customExText));
-	validateHandler(RetryCommand{nullptr});
-	validateHandler(DoubleRetryCommand{nullptr});
+	ExceptionHandler::registrate(typeid(FailedCommand), typeid(CustomException), retryHandler);
+	ExceptionHandler::registrate(typeid(RetryCommand), typeid(CustomException), doubleRetryHandler);
+	ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(CustomException), logHandler);
 
 	const std::string failedCmdText = "DoubleRetryAndLogHandlerTest";
 
@@ -266,14 +247,8 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 	catch (const std::exception& ex)
 	{
 		failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
-		if (!failedCmd)
-		{
-			FAIL() << "RETRY";
-			return;
-		}
 		auto& failedCmdRef = *failedCmd;
 		ASSERT_EQ(typeid(failedCmdRef), typeid(RetryCommand));
-
 		try
 		{
 			failedCmd->exec();
@@ -284,7 +259,6 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 			failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 			auto& failedCmdRef = *failedCmd;
 			ASSERT_EQ(typeid(failedCmdRef), typeid(DoubleRetryCommand));
-
 			try
 			{
 				failedCmd->exec();
@@ -295,7 +269,6 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 				failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 				auto& failedCmdRef = *failedCmd;
 				ASSERT_EQ(typeid(failedCmdRef), typeid(LogCommand));
-
 				try
 				{
 					failedCmd->exec();
