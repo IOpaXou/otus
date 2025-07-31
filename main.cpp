@@ -31,6 +31,16 @@ namespace
 		return std::make_unique<DoubleRetryCommand>(std::move(cmd));
 	};
 
+	struct HandlersInitializer 
+	{
+		HandlersInitializer() 
+		{
+			ExceptionHandler::registrate(typeid(FailedCommand), typeid(std::exception), retryHandler);
+			ExceptionHandler::registrate(typeid(RetryCommand), typeid(std::exception), doubleRetryHandler);
+			ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(std::exception), logHandler);
+		}
+	};
+
 	void checkLog(const std::string& txt)
 	{
 		std::ifstream fin;
@@ -229,9 +239,7 @@ TEST(ExceptionTestSuite, LogAndRetryHandler)
 
 TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 {
-	ExceptionHandler::registrate(typeid(FailedCommand), typeid(std::exception), retryHandler);
-	ExceptionHandler::registrate(typeid(RetryCommand), typeid(std::exception), doubleRetryHandler);
-	ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(std::exception), logHandler);
+	static HandlersInitializer initializer;
 
 	const std::string failedCmdText = "DoubleRetryAndLogHandlerTest";
 
