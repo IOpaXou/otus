@@ -26,5 +26,8 @@ public:
     static void registrate(const std::type_index& cmd, const std::type_index& ex, const Handler& h);
 
 private:
-    static std::unordered_map<Key, Handler, KeyHash> data;
+    static std::unordered_map<Key, Handler, KeyHash>& getData() {
+        static std::unordered_map<Key, Handler, KeyHash> data;
+        return data;
+    }
 };

@@ -247,11 +247,6 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 	catch (const std::exception& ex)
 	{
 		failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
-		if (!failedCmd)
-		{
-			FAIL() << "retry";
-			return;
-		}
 		auto& failedCmdRef = *failedCmd;
 		ASSERT_EQ(typeid(failedCmdRef), typeid(RetryCommand));
 
@@ -263,11 +258,6 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 		catch (const std::exception& ex)
 		{
 			failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
-			if (!failedCmd)
-			{
-				FAIL() << "double retry";
-				return;
-			}
 			auto& failedCmdRef = *failedCmd;
 			ASSERT_EQ(typeid(failedCmdRef), typeid(DoubleRetryCommand));
 
@@ -279,11 +269,6 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 			catch (const std::exception& ex)
 			{
 				failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
-				if (!failedCmd)
-				{
-					FAIL() << "log";
-					return;
-				}
 				auto& failedCmdRef = *failedCmd;
 				ASSERT_EQ(typeid(failedCmdRef), typeid(LogCommand));
 
