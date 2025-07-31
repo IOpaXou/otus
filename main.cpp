@@ -266,6 +266,11 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 	catch (const std::exception& ex)
 	{
 		failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
+		if (!failedCmd)
+		{
+			FAIL() << "RETRY";
+			return;
+		}
 		auto& failedCmdRef = *failedCmd;
 		ASSERT_EQ(typeid(failedCmdRef), typeid(RetryCommand));
 
