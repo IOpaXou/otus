@@ -35,9 +35,9 @@ namespace
 	{
 		HandlersInitializer() 
 		{
-			ExceptionHandler::registrate(typeid(FailedCommand), typeid(std::exception), retryHandler);
-			ExceptionHandler::registrate(typeid(RetryCommand), typeid(std::exception), doubleRetryHandler);
-			ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(std::exception), logHandler);
+			ExceptionHandler::registrate(typeid(FailedCommand), typeid(CustomException), retryHandler);
+			ExceptionHandler::registrate(typeid(RetryCommand), typeid(CustomException), doubleRetryHandler);
+			ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(CustomException), logHandler);
 		}
 	};
 
