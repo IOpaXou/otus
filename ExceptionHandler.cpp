@@ -1,7 +1,6 @@
 #include "ExceptionHandler.h"
 
-std::unordered_map<Key, Handler, KeyHash> ExceptionHandler::data;
-CommandQueuePtr ExceptionHandler::cmdQueue;
+std::unordered_map<Key, Handler, KeyHash> ExceptionHandler::data = {};
 
 ICommandUPtr ExceptionHandler::handle(ICommandUPtr cmd, const std::exception& ex)
 {

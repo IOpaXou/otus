@@ -27,5 +27,4 @@ public:
 
 private:
     static std::unordered_map<Key, Handler, KeyHash> data;
-    static CommandQueuePtr cmdQueue;
 };
