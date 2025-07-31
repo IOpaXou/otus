@@ -236,6 +236,8 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 	const std::string failedCmdText = "DoubleRetryAndLogHandlerTest";
 
 	ICommandUPtr failedCmd = std::make_unique<FailedCommand>(failedCmdText);
+	auto& failedCmdRef = *failedCmd;
+	ASSERT_EQ(typeid(failedCmdRef), typeid(FailedCommand));
 
 	try
 	{
@@ -244,39 +246,39 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 	}
 	catch (const std::exception& ex)
 	{
+		failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 		auto& failedCmdRef = *failedCmd;
-		ASSERT_EQ(typeid(failedCmdRef), typeid(FailedCommand));
+		ASSERT_EQ(typeid(failedCmdRef), typeid(RetryCommand));
+
 		try
 		{
-			failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 			failedCmd->exec();
 			FAIL() << "unreachable";
 		}
 		catch (const std::exception& ex)
 		{
+			failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 			auto& failedCmdRef = *failedCmd;
-			ASSERT_EQ(typeid(failedCmdRef), typeid(RetryCommand));
+			ASSERT_EQ(typeid(failedCmdRef), typeid(DoubleRetryCommand));
+
 			try
 			{
-				failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 				failedCmd->exec();
 				FAIL() << "unreachable";
 			}
 			catch (const std::exception& ex)
 			{
+				failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 				auto& failedCmdRef = *failedCmd;
-				ASSERT_EQ(typeid(failedCmdRef), typeid(DoubleRetryCommand));
+				ASSERT_EQ(typeid(failedCmdRef), typeid(LogCommand));
+
 				try
 				{
-					failedCmd = ExceptionHandler::handle(std::move(failedCmd), ex);
 					failedCmd->exec();
-					FAIL() << "unreachable";
 				}
 				catch (const std::exception& ex)
 				{
-					auto& failedCmdRef = *failedCmd;
-					ASSERT_EQ(typeid(failedCmdRef), typeid(LogCommand));
-					failedCmd->exec();
+					FAIL() << "unreachable";
 				}
 			}
 		}
