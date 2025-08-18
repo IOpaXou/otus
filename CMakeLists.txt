@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
-project(OtusUnitTests)
+project(OtusStableAbstractsTests)
 
 find_package(GTest REQUIRED)
 include_directories(${GTEST_INCLUDE_DIRS})
 
-add_executable(unit_tests main.cpp)
+add_executable(stable_abstracts_tests main.cpp)
 
-target_link_libraries(unit_tests ${GTEST_LIBRARIES})
+target_link_libraries(stable_abstracts_tests ${GTEST_LIBRARIES})
 
-add_test(NAME unit_tests COMMAND unit_tests)
+add_test(NAME stable_abstracts_tests COMMAND stable_abstracts_tests)
