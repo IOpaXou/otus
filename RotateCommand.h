@@ -4,10 +4,10 @@
 
 #include <cmath>
 
-class Rotate
+class RotateCommand
 {
 public:
-    Rotate(IRotatable& rObj) : _rObj(rObj) {}
+    RotateCommand(IRotatable& rObj) : _rObj(rObj) {}
     
     void exec()
     {

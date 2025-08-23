@@ -2,10 +2,10 @@
 
 #include "IMovable.h"
 
-class Move
+class MoveCommand
 {
 public:
-	Move(IMovable& mObj) : _mObj(mObj) {}
+	MoveCommand(IMovable& mObj) : _mObj(mObj) {}
 
 	void exec()
 	{

@@ -276,9 +276,9 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 }
 
 #include "IMovable.h"
-#include "Move.h"
+#include "MoveCommand.h"
 #include "MovableObject.h"
-#include "Rotate.h"
+#include "RotateCommand.h"
 #include "RotatableObject.h"
 
 #include <climits>
@@ -357,7 +357,7 @@ TEST(MoveTestSuite, MoveObject)
 
 	MovableObject mobj(InitialPos, InitialVelocity);
 
-	Move move(mobj);
+	MoveCommand move(mobj);
 	move.exec();
 
 	ASSERT_EQ(mobj.getLocation(), FinalPos);
@@ -366,7 +366,7 @@ TEST(MoveTestSuite, MoveObject)
 TEST(MoveTestSuite, MoveNoGetLocationObject)
 {
 	MovableButNotGetLocatable mobj;
-	Move move(mobj);
+	MoveCommand move(mobj);
 
 	EXPECT_THROW(move.exec(), std::runtime_error);
 }
@@ -374,7 +374,7 @@ TEST(MoveTestSuite, MoveNoGetLocationObject)
 TEST(MoveTestSuite, MoveNoVelocityObject)
 {
 	MovableButNotGetVelocitable mobj;
-	Move move(mobj);
+	MoveCommand move(mobj);
 
 	EXPECT_THROW(move.exec(), std::runtime_error);
 }
@@ -382,7 +382,7 @@ TEST(MoveTestSuite, MoveNoVelocityObject)
 TEST(MoveTestSuite, MoveNoSetLocationObject)
 {
 	MovableButNotSetLocatable mobj;
-	Move move(mobj);
+	MoveCommand move(mobj);
 
 	EXPECT_THROW(move.exec(), std::runtime_error);
 }
@@ -390,21 +390,21 @@ TEST(MoveTestSuite, MoveNoSetLocationObject)
 TEST(RotateTestSuite, RotateObject)
 {
 	RotatableObject robj(10.0, 40.0);
-	Rotate rotate(robj);
+	RotateCommand rotate(robj);
 
 	rotate.exec();
 
 	ASSERT_EQ(robj.getAngle(), 50.0);
 
 	RotatableObject robj2(10.0, -40.0);
-	Rotate rotate2(robj2);
+	RotateCommand rotate2(robj2);
 
 	rotate2.exec();
 
 	ASSERT_EQ(robj2.getAngle(), 330.0);
 
 	RotatableObject robj3(350.0, 300.0);
-	Rotate rotate3(robj3);
+	RotateCommand rotate3(robj3);
 
 	rotate3.exec();
 
