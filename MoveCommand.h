@@ -1,13 +1,14 @@
 #pragma once
 
+#include "ICommand.h"
 #include "IMovable.h"
 
-class MoveCommand
+class MoveCommand : public ICommand
 {
 public:
-	MoveCommand(IMovable& mObj) : _mObj(mObj) {}
+	explicit MoveCommand(IMovable& mObj) : _mObj(mObj) {}
 
-	void exec()
+	void exec() override
 	{
 		const auto startLoc = _mObj.getLocation();
 		const auto velocity = _mObj.getVelocity();

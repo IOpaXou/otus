@@ -1,0 +1,18 @@
+#pragma once
+
+#include "ICommand.h"
+#include "IFuelable.h"
+
+class BurnFuelCommand : public ICommand
+{
+public:
+    explicit BurnFuelCommand(IFuelable& fObj) : _fObj(fObj) {}
+    void exec() override
+    {
+        const auto newFuelLevel = _fObj.getFuelLevel() - _fObj.getFuelConsumptionValue();
+        _fObj.setFuelLevel(newFuelLevel);
+    }
+
+private:
+    IFuelable& _fObj;
+};

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "CustomException.h"
+#include "CommandException.h"
 #include "ICommand.h"
 
 class FailedCommand : public ICommand
@@ -9,7 +9,7 @@ public:
     FailedCommand(const std::string& msg) : _msg(msg) {}
     void exec() override
     {
-        throw CustomException(_msg);
+        throw CommandException(_msg);
     }
 
 private:
