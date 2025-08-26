@@ -22,6 +22,11 @@ public:
         pos = newPos;
     }
 
+    void setVelocity(const Vector& newVelocity) override
+    {
+        velocity = newVelocity;
+    }
+
 private:
     Point pos;
     Vector velocity;

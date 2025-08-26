@@ -3,10 +3,10 @@
 #include <exception>
 #include <string>
 
-class CustomException : public std::exception
+class CommandException : public std::exception
 {
 public:
-    CustomException(const std::string& msg) : _msg(msg) {}
+    CommandException(const std::string& msg) : _msg(msg) {}
 
     const char* what() const noexcept override
     {

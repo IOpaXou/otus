@@ -1,15 +1,16 @@
 #pragma once
 
+#include "ICommand.h"
 #include "IRotatable.h"
 
 #include <cmath>
 
-class RotateCommand
+class RotateCommand : public ICommand
 {
 public:
-    RotateCommand(IRotatable& rObj) : _rObj(rObj) {}
+    explicit RotateCommand(IRotatable& rObj) : _rObj(rObj) {}
     
-    void exec()
+    void exec() override
     {
         const auto angle = _rObj.getAngle();
         const auto angVelocity = _rObj.getAngularVelocity();

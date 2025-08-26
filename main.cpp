@@ -1,4 +1,4 @@
-#include "CustomException.h"
+#include "CommandException.h"
 #include "ExceptionHandler.h"
 #include "DoubleRetryCommand.h"
 #include "FailedCommand.h"
@@ -97,7 +97,7 @@ namespace
 
 TEST(ExceptionTestSuite, LogCommand)
 {
-	CustomException customEx(customExText);
+	CommandException customEx(customExText);
 	ICommandUPtr logCmd = std::make_unique<LogCommand>(customEx);
 	logCmd->exec();
 
@@ -110,7 +110,7 @@ TEST(ExceptionTestSuite, LogHandler)
 
 	CommandQueuePtr cmdQueue = std::make_shared<CommandQueue>();
 
-	CustomException customEx(customExText);
+	CommandException customEx(customExText);
 	ICommandUPtr logCmd = std::make_unique<LogCommand>(customEx);
 
 	LogExceptionHandler logHandler(cmdQueue);
@@ -220,9 +220,9 @@ TEST(ExceptionTestSuite, LogAndRetryHandler)
 
 TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 {
-	ExceptionHandler::registrate(typeid(FailedCommand), typeid(CustomException), retryHandler);
-	ExceptionHandler::registrate(typeid(RetryCommand), typeid(CustomException), doubleRetryHandler);
-	ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(CustomException), logHandler);
+	ExceptionHandler::registrate(typeid(FailedCommand), typeid(CommandException), retryHandler);
+	ExceptionHandler::registrate(typeid(RetryCommand), typeid(CommandException), doubleRetryHandler);
+	ExceptionHandler::registrate(typeid(DoubleRetryCommand), typeid(CommandException), logHandler);
 
 	const std::string failedCmdText = "DoubleRetryAndLogHandlerTest";
 
@@ -297,6 +297,7 @@ public:
 	}
 	Vector getVelocity() override {return {};}
 	void setLocation(const Point&) override {}
+	void setVelocity(const Vector&) override {}
 };
 
 class MovableButNotGetVelocitable : public IMovable
@@ -307,6 +308,7 @@ public:
 		throw std::runtime_error("Can't get velocity");
 	}
 	void setLocation(const Point&) override {}
+	void setVelocity(const Vector&) override {}
 };
 
 class MovableButNotSetLocatable : public IMovable
@@ -317,6 +319,7 @@ public:
 	void setLocation(const Point&) override {
 		throw std::runtime_error("Can't set location");
 	}
+	void setVelocity(const Vector&) override {}
 };
 
 const auto EPSILON = 1e-9;
@@ -462,6 +465,121 @@ TEST(SolveTestSuite, NotFiniteABC)
 	EXPECT_THROW(solve(NAN, 2.2, 10.0), std::invalid_argument);
 	EXPECT_THROW(solve(1.0, INFINITY, 10.0), std::invalid_argument);
 	EXPECT_THROW(solve(1.0, 2.2, NAN), std::invalid_argument);
+}
+
+#include "BurnFuelCommand.h"
+#include "ChangeVelocityCommand.h"
+#include "CheckFuelCommand.h"
+#include "FuelableObject.h"
+#include "MacroCommand.h"
+#include "RotateAndChangeVelocityCommand.h"
+
+const FuelUnit InitialFuel = 12.0;
+const FuelUnit InitalConsumption = 5.0;
+
+TEST(CommandTestSuite, CheckEnoughFuel)
+{
+	FuelableObject fObj(InitialFuel, InitalConsumption);
+
+	CheckFuelCommand checkFuelCommand(fObj);
+	EXPECT_NO_THROW(checkFuelCommand.exec());
+}
+
+TEST(CommandTestSuite, CheckNotEnoughFuel)
+{
+	FuelableObject fObj(2.0, 3.0);
+
+	CheckFuelCommand checkFuelCommand(fObj);
+	EXPECT_THROW(checkFuelCommand.exec(), CommandException);
+}
+
+TEST(CommandTestSuite, BurnFuel)
+{
+	FuelableObject fObj(InitialFuel, InitalConsumption);
+
+	BurnFuelCommand burnFuelCommand(fObj);
+	burnFuelCommand.exec();
+	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 7.0);
+
+	burnFuelCommand.exec();
+	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 2.0);
+}
+
+TEST(CommandTestSuite, MacroCommandEnoughFuel)
+{
+	FuelableObject fObj(InitialFuel, InitalConsumption);
+	MovableObject mObj(InitialPos, InitialVelocity);
+
+	std::vector<ICommandUPtr> commands;
+	commands.push_back(std::make_unique<CheckFuelCommand>(fObj));
+	commands.push_back(std::make_unique<MoveCommand>(mObj));
+	commands.push_back(std::make_unique<BurnFuelCommand>(fObj));
+
+	MacroCommand macroCommand(std::move(commands));
+
+	EXPECT_NO_THROW(macroCommand.exec());
+	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 7.0);
+	EXPECT_EQ(mObj.getLocation(), Point(5.0, 8.0));
+}
+
+TEST(CommandTestSuite, MacroCommandNotEnoughFuel)
+{
+	FuelableObject fObj(2.0, InitalConsumption);
+	MovableObject mObj(InitialPos, InitialVelocity);
+
+	std::vector<ICommandUPtr> commands;
+	commands.push_back(std::make_unique<CheckFuelCommand>(fObj));
+	commands.push_back(std::make_unique<MoveCommand>(mObj));
+	commands.push_back(std::make_unique<BurnFuelCommand>(fObj));
+
+	MacroCommand macroCommand(std::move(commands));
+
+	EXPECT_THROW(macroCommand.exec(), CommandException);
+	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 2.0);
+	EXPECT_EQ(mObj.getLocation(), InitialPos);
+}
+
+TEST(CommandTestSuite, ChangeVelocityCommandForUnmovableObject)
+{
+	RotatableObject rObj(0, 90);
+
+	ChangeVelocityCommand changeVelocityCommand(&rObj, nullptr);
+
+	EXPECT_NO_THROW(changeVelocityCommand.exec());
+}
+
+TEST(CommandTestSuite, ChangeVelocityCommandForMovableObject)
+{
+	RotatableObject rObj(0, 90);
+	MovableObject mObj(InitialPos, {3, 0});
+
+	ChangeVelocityCommand changeVelocityCommand(&rObj, &mObj);
+	changeVelocityCommand.exec();
+
+	EXPECT_EQ(mObj.getVelocity(), Point(0, 3));
+}
+
+TEST(CommandTestSuite, RotateAndChangeVelocityForUnmovableObject)
+{
+	RotatableObject rObj(0, 90);
+
+	RotateAndChangeVelocityCommand rotateAndChangeVelocityCommand(&rObj, nullptr);
+
+	EXPECT_NO_THROW(rotateAndChangeVelocityCommand.exec());
+
+	EXPECT_EQ(rObj.getAngle(), 90);
+}
+
+TEST(CommandTestSuite, RotateAndChangeVelocityForMovableObject)
+{
+	RotatableObject rObj(0, 90);
+	MovableObject mObj(InitialPos, {3, 0});
+
+	RotateAndChangeVelocityCommand rotateAndChangeVelocityCommand(&rObj, &mObj);
+	rotateAndChangeVelocityCommand.exec();
+
+	EXPECT_EQ(rObj.getAngle(), 90);
+	EXPECT_EQ(mObj.getVelocity(), Point(0, 3));
 }
 
 int main(int argc, char** argv)

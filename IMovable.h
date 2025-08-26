@@ -8,4 +8,5 @@ public:
 	virtual Point getLocation() = 0;
 	virtual Vector getVelocity() = 0;
 	virtual void setLocation(const Point&) = 0;
+	virtual void setVelocity(const Vector&) = 0;
 };
