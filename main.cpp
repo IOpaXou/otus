@@ -2,16 +2,27 @@
 #include "ExceptionHandler.h"
 #include "DoubleRetryCommand.h"
 #include "FailedCommand.h"
-#include "ICommand.h"
 #include "LogCommand.h"
 #include "RetryCommand.h"
 
-#include <exception>
-#include <fstream>
-#include <memory>
+#include "IMovable.h"
+#include "MoveCommand.h"
+#include "MovableObject.h"
+#include "RotateCommand.h"
+#include "RotatableObject.h"
 
+#include "BurnFuelCommand.h"
+#include "ChangeVelocityCommand.h"
+#include "CheckFuelCommand.h"
+#include "FuelableObject.h"
+#include "MacroCommand.h"
+#include "RotateAndChangeVelocityCommand.h"
+
+#include "IoCHelper.h"
+
+#include <climits>
 #include <gtest/gtest.h>
-
+#include <thread>
 namespace
 {
 	const std::string customExText = "Alarm";
@@ -275,17 +286,6 @@ TEST(ExceptionTestSuite, DoubleRetryAndLogHandler)
 	checkLog(failedCmdText);
 }
 
-#include "IMovable.h"
-#include "MoveCommand.h"
-#include "MovableObject.h"
-#include "RotateCommand.h"
-#include "RotatableObject.h"
-
-#include <climits>
-#include <cmath>
-#include <exception>
-#include <gtest/gtest.h>
-
 constexpr Point InitialPos {12, 5};
 constexpr Vector InitialVelocity {-7, 3};
 
@@ -451,7 +451,7 @@ TEST(SolveTestSuite, ABC121em10)
 	const auto b = 2.0;
 	const auto c = 1.0 - (EPSILON/10);
 	const auto roots = solve(a, b, c);
-	ASSERT_EQ(roots.size(), 1);
+	EXPECT_EQ(roots.size(), 1);
 	EXPECT_NEAR(roots.at(0), -1, EPSILON);
 
 	const auto D = b*b - 4*a*c;
@@ -466,13 +466,6 @@ TEST(SolveTestSuite, NotFiniteABC)
 	EXPECT_THROW(solve(1.0, INFINITY, 10.0), std::invalid_argument);
 	EXPECT_THROW(solve(1.0, 2.2, NAN), std::invalid_argument);
 }
-
-#include "BurnFuelCommand.h"
-#include "ChangeVelocityCommand.h"
-#include "CheckFuelCommand.h"
-#include "FuelableObject.h"
-#include "MacroCommand.h"
-#include "RotateAndChangeVelocityCommand.h"
 
 const FuelUnit InitialFuel = 12.0;
 const FuelUnit InitalConsumption = 5.0;
@@ -580,6 +573,138 @@ TEST(CommandTestSuite, RotateAndChangeVelocityForMovableObject)
 
 	EXPECT_EQ(rObj.getAngle(), 90);
 	EXPECT_EQ(mObj.getVelocity(), Point(0, 3));
+}
+
+class IoCSample
+{
+public:
+	IoCSample(int val, const std::string& str) : _val(val), _str(str) {}
+	int value() const {
+		return _val;
+	}
+	std::string str()
+	{
+		return _str;
+	}
+private:
+	int _val{};
+	std::string _str{};
+};
+
+TEST(IoCTestSuite, IoCResolve)
+{
+	auto dependencyName = "IoCSample";
+	Factory dependencyFactory = [](const std::vector<AnyValue>& args){
+		if (args.empty()) {
+			throw std::runtime_error("IoC Sample requires 1 argument");
+		}
+		return std::make_shared<IoCSample>(std::any_cast<int>(args[0]), std::any_cast<std::string>(args[1]));
+	};
+
+	EXPECT_NO_THROW(registerFactoryHelper(dependencyName, dependencyFactory)->exec());
+
+	const auto iocSampleVal = 2;
+	const std::string iocSampleStr = "Strochka";
+	const auto iocSample = IoC::Resolve<std::shared_ptr<IoCSample>>(dependencyName, {iocSampleVal, iocSampleStr});
+
+	EXPECT_TRUE(iocSample);
+	EXPECT_EQ(iocSample->value(), 2);
+	EXPECT_EQ(iocSample->str(), iocSampleStr);
+
+	dependencyName = "IntResolve";
+	dependencyFactory = [](const std::vector<AnyValue>& args) {
+		return 99;
+	};
+	EXPECT_NO_THROW(registerFactoryHelper(dependencyName, dependencyFactory)->exec());
+	auto iocIntResolve = IoC::Resolve<int>(dependencyName);
+	EXPECT_EQ(iocIntResolve, 99);
+
+	dependencyName = "StringResolve";
+	dependencyFactory = [](const std::vector<AnyValue>& args) {
+		return std::string("66");
+	};
+	EXPECT_NO_THROW(registerFactoryHelper(dependencyName, dependencyFactory)->exec());
+	std::string iocStringResolve = IoC::Resolve<std::string>(dependencyName);
+	EXPECT_EQ(iocStringResolve, "66");
+}
+
+TEST(IoCTestSuite, IoCResolveThrow)
+{
+	EXPECT_THROW(IoC::Resolve<void>("NotExistedDependency"), std::runtime_error);
+	EXPECT_THROW(IoC::Resolve<void>("IoC.Register", {"DependencyName"}), std::invalid_argument);
+}
+
+TEST(IoCTestSuite, ScopesManagement)
+{
+	std::string newScope = "newScope";
+
+	auto created = IoC::Resolve<bool>("Scopes.New.Impl", {newScope});
+	EXPECT_TRUE(created);
+	created = IoC::Resolve<bool>("Scopes.New.Impl", {newScope});
+	EXPECT_FALSE(created);
+
+	auto current = IoC::Resolve<bool>("Scopes.Current.Impl", {std::string("smth")});
+	EXPECT_FALSE(current);
+	current = IoC::Resolve<bool>("Scopes.Current.Impl", {newScope});
+	EXPECT_TRUE(current);
+
+	auto cleaned = IoC::Resolve<bool>("Scopes.Clear.Impl", {newScope});
+	EXPECT_TRUE(cleaned);
+
+	current = IoC::Resolve<bool>("Scopes.Current.Impl", {newScope});
+	EXPECT_FALSE(current);
+}
+
+TEST(IoCTestSuite, ScopesIsolation)
+{
+	std::string scope1 = "scope1";
+	std::string scope2 = "scope2";
+	std::string dependencyName = "dependency";
+
+	IoC::Resolve<ICommandPtr>("Scopes.New", {scope1})->exec();
+	IoC::Resolve<ICommandPtr>("Scopes.New", {scope2})->exec();
+
+	IoC::Resolve<ICommandPtr>("Scopes.Current", {scope1})->exec();
+	registerFactoryHelper(dependencyName, [](const auto&) { return 1;})->exec();
+
+	IoC::Resolve<ICommandPtr>("Scopes.Current", {scope2})->exec();
+	registerFactoryHelper(dependencyName, [](const auto&) { return 2;})->exec();
+
+	IoC::Resolve<ICommandPtr>("Scopes.Current", {scope1})->exec();
+	EXPECT_EQ(IoC::Resolve<int>(dependencyName), 1);
+	IoC::Resolve<ICommandPtr>("Scopes.Current", {scope2})->exec();
+	EXPECT_EQ(IoC::Resolve<int>(dependencyName), 2);
+}
+
+TEST(IoCTestSuite, Multithreading)
+{
+	constexpr int threadsCount = 5;
+	std::vector<std::thread> threads;
+	std::atomic<int> done = 0;
+
+	std::string multithreadDependency = "multithreadDependency";
+
+	for (auto t = 0; t < threadsCount; t++)
+	{
+		threads.emplace_back([t, &multithreadDependency, &done](){
+			std::string scopeName = "Scope" + std::to_string(t);
+			IoC::Resolve<ICommandPtr>("Scopes.New", {scopeName})->exec();
+			IoC::Resolve<ICommandPtr>("Scopes.Current", {scopeName})->exec();
+
+			registerFactoryHelper(multithreadDependency, [t](const auto&){
+				return t*100;
+			})->exec();
+
+			EXPECT_EQ(IoC::Resolve<int>(multithreadDependency), t*100);
+			done++;
+		});
+	}
+
+	for (auto& thread : threads)
+	{
+		thread.join();
+	}
+	EXPECT_EQ(done, threadsCount);
 }
 
 int main(int argc, char** argv)
