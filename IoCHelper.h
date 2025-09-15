@@ -1,9 +1,6 @@
 #pragma once
 
-#include "ICommand.h"
 #include "IoC.h"
-
-#include <utility>
 
 template <typename DependencyName, typename FactoryType>
 ICommandPtr registerFactoryHelper(DependencyName&& name, FactoryType&& factory)
@@ -14,11 +11,15 @@ ICommandPtr registerFactoryHelper(DependencyName&& name, FactoryType&& factory)
     return IoC::Resolve<ICommandPtr>("IoC.Register", {depName, depFactory});
 }
 
-template <typename IoCHandlerName, typename IoCHandlerType>
-ICommandPtr registerHandlerHelper(IoCHandlerName&& name, IoCHandlerType&& type)
+template <typename IoCHandlerName, typename IoCHandlerFunc>
+void registerHandlerHelper(IoCHandlerName&& name, IoCHandlerFunc&& func)
 {
     std::string handlerName = std::forward<IoCHandlerName>(name);
-    IoC::IoCHandler handlerType = std::forward<IoCHandlerType>(type);
+    IoC::IoCHandler handlerFunc = [handler = std::forward<IoCHandlerFunc>(func), handlerName]
+    (const std::vector<AnyValue>& args) -> std::any
+    {
+        return handler(args);
+    };
 
-    return IoC::Resolve<ICommandPtr>("IoC.Register.Handler", {handlerName, handlerType});
+    IoC::Resolve<AnyValue>("IoC.Register.Handler", {handlerName, handlerFunc});
 }

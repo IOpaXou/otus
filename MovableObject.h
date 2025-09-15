@@ -27,6 +27,10 @@ public:
         velocity = newVelocity;
     }
 
+    void finish() override
+    {
+    }
+
 private:
     Point pos;
     Vector velocity;

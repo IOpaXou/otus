@@ -27,7 +27,6 @@ public:
         std::call_once(initFlag, init);
 
         {
-            std::lock_guard<std::mutex> lock(_handlersMutex);
             auto handler = _handlers.find(key);
             if (handler != _handlers.end()) {
                 auto result = handler->second(args);
@@ -43,18 +42,39 @@ public:
             try
             {
                 auto result = factory(args);
+                if (!result.has_value())
+                {
+                    if constexpr (std::is_default_constructible_v<T>)
+                    {
+                        return T{};
+                    }
+                    else
+                    {
+                        throw std::runtime_error("Cannot convert empty value to non-default-constructible type for dependency: " + key);
+                    }
+                }
 
                 if constexpr (std::is_same_v<T, void>)
                 {
                     return;
                 }
-                else if constexpr (std::is_reference_v<T>)
-                {
-                    return std::any_cast<T>(result);
-                }
                 else
                 {
-                    return std::move(std::any_cast<T&>(result));
+                    try
+                    {
+                        return std::any_cast<T>(result);
+                    }
+                    catch (const std::bad_any_cast&)
+                    {
+                        try
+                        {
+                            return std::any_cast<T&>(result);
+                        }
+                        catch (const std::bad_any_cast&)
+                        {
+                            throw std::runtime_error("Failed to cast for key " + key);
+                        }
+                    }
                 }
             }
             catch (const std::bad_any_cast&)
