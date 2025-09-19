@@ -20,9 +20,15 @@
 
 #include "IoCHelper.h"
 
+#include "FinishCommand.h"
+#include "SetLocationCommand.h"
+#include "TestMovableAdapter.h"
+#include "UObject.h"
+
 #include <climits>
 #include <gtest/gtest.h>
 #include <thread>
+
 namespace
 {
 	const std::string customExText = "Alarm";
@@ -298,6 +304,7 @@ public:
 	Vector getVelocity() override {return {};}
 	void setLocation(const Point&) override {}
 	void setVelocity(const Vector&) override {}
+	void finish() override {}
 };
 
 class MovableButNotGetVelocitable : public IMovable
@@ -309,6 +316,7 @@ public:
 	}
 	void setLocation(const Point&) override {}
 	void setVelocity(const Vector&) override {}
+	void finish() override {}
 };
 
 class MovableButNotSetLocatable : public IMovable
@@ -320,6 +328,7 @@ public:
 		throw std::runtime_error("Can't set location");
 	}
 	void setVelocity(const Vector&) override {}
+	void finish() override {}
 };
 
 const auto EPSILON = 1e-9;
@@ -705,6 +714,62 @@ TEST(IoCTestSuite, Multithreading)
 		thread.join();
 	}
 	EXPECT_EQ(done, threadsCount);
+}
+
+TEST(AdapterTestSuite, TestAdapterGenerator)
+{
+	using IMovablePtr = std::shared_ptr<IMovable>;
+	RegisterIMovableTestMovableAdapter();
+
+	UObjectPtr spaceship = std::make_shared<UObject>();
+
+	spaceship->setProperty<Point>(UObject::LocationProperty, Point(100, 200));
+	spaceship->setProperty<Vector>(UObject::VelocityProperty, Vector(300, 400));
+
+	auto getLocationRegisterCommand = registerFactoryHelper("IMovable:getLocation", [](const std::vector<AnyValue>& args) {
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+        return obj->getProperty<Point>(UObject::LocationProperty);
+    });
+	EXPECT_TRUE(getLocationRegisterCommand);
+	getLocationRegisterCommand->exec();
+
+	auto setLocationRegisterCommand = registerFactoryHelper("IMovable:setLocation", [](const std::vector<AnyValue>& args) {
+		auto command = std::make_shared<SetLocationCommand>(args);
+		return std::static_pointer_cast<ICommand>(command);
+    });
+	EXPECT_TRUE(setLocationRegisterCommand);
+	setLocationRegisterCommand->exec();
+
+	auto getVelocityRegisterCommand = registerFactoryHelper("IMovable:getVelocity", [](const std::vector<AnyValue>& args) {
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+        return obj->getProperty<Vector>(UObject::VelocityProperty);
+    });
+	EXPECT_TRUE(getVelocityRegisterCommand);
+	getVelocityRegisterCommand->exec();
+
+	auto finishCommand = registerFactoryHelper("IMovable:finish", [](const std::vector<AnyValue>& args) {
+		auto command = std::make_shared<FinishCommand>(args);
+		return std::static_pointer_cast<ICommand>(command);
+	});
+	EXPECT_TRUE(finishCommand);
+	finishCommand->exec();
+
+	auto adapter = IoC::Resolve<IMovablePtr>("IMovable.Adapter", {spaceship});
+	auto adapter2 = IoC::Resolve<IMovablePtr>("IMovable.Adapter", {spaceship});
+	EXPECT_NE(adapter, nullptr);
+	EXPECT_NE(adapter2, nullptr);
+	EXPECT_NE(adapter, adapter2);
+
+	EXPECT_EQ(adapter->getLocation(), Point(100, 200));
+	EXPECT_EQ(adapter->getVelocity(), Vector(300, 400));
+
+	EXPECT_NO_THROW(adapter->setLocation({500, 600}));
+	EXPECT_EQ(adapter->getLocation(), Point(500, 600));
+	EXPECT_EQ(adapter2->getLocation(), Point(500, 600));
+
+	EXPECT_THROW(spaceship->getProperty<bool>(UObject::FinishProperty), std::runtime_error);
+	adapter->finish();
+	EXPECT_EQ(spaceship->getProperty<bool>(UObject::FinishProperty), true);
 }
 
 int main(int argc, char** argv)

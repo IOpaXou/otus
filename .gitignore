@@ -1,6 +1,4 @@
 .vscode/
 build/
 CommandProcessor.h
-MovableAdapter.h
-UObject.h
 UObjectImpl.h
