@@ -25,9 +25,15 @@
 #include "TestMovableAdapter.h"
 #include "UObject.h"
 
+#include "HardStopCommand.h"
+#include "ServerThread.h"
+#include "SoftStopCommand.h"
+#include "StartCommand.h"
+#include "TestCommand.h"
+
+#include <chrono>
 #include <climits>
 #include <gtest/gtest.h>
-#include <thread>
 
 namespace
 {
@@ -770,6 +776,135 @@ TEST(AdapterTestSuite, TestAdapterGenerator)
 	EXPECT_THROW(spaceship->getProperty<bool>(UObject::FinishProperty), std::runtime_error);
 	adapter->finish();
 	EXPECT_EQ(spaceship->getProperty<bool>(UObject::FinishProperty), true);
+}
+
+TEST(MultithreadingTestSuite, TestStartCommand)
+{
+	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
+	ServerThread serverThread(queue);
+	StartCommand startCmd(serverThread);
+
+	EXPECT_FALSE(serverThread.isRunning());
+	startCmd.exec();
+	EXPECT_TRUE(serverThread.isRunning());
+
+	serverThread.stop();
+	serverThread.join();
+}
+
+TEST(MultithreadingTestSuite, TestConditionalStartCommand)
+{
+	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
+	ServerThread serverThread(queue);
+	StartCommand startCmd(serverThread);
+
+	std::thread::id serverThreadID;
+	std::mutex mutex;
+	std::condition_variable cv;
+
+	EXPECT_FALSE(serverThread.isRunning());
+	queue->push(std::make_shared<TestCommand>([&]() {
+		{
+			serverThreadID = std::this_thread::get_id();
+			std::lock_guard<std::mutex> lock(mutex);
+			cv.notify_one();
+		}
+	}));
+
+	startCmd.exec();
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		cv.wait_for(lock, std::chrono::seconds(2), [&serverThread](){
+			return serverThread.isRunning();
+		});
+	}
+
+	EXPECT_NE(serverThreadID, std::this_thread::get_id());
+	EXPECT_TRUE(serverThread.isRunning());
+
+	serverThread.stop();
+	serverThread.join();
+}
+
+TEST(MultithreadingTestSuite, TestHardStopCommand)
+{
+	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
+	ServerThread serverThread(queue);
+	StartCommand startCmd(serverThread);
+
+	bool hardStop = true;
+	bool softStop = false;
+	std::mutex mutex;
+	std::condition_variable cv;
+
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<HardStopCommand>(serverThread));
+	queue->push(std::make_shared<TestCommand>([&](){
+		std::lock_guard<std::mutex> lock(mutex);
+		hardStop = false;
+		cv.notify_one();
+	}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([&](){
+		softStop = true;
+	}));
+
+	EXPECT_FALSE(serverThread.isRunning());
+	startCmd.exec();
+	EXPECT_TRUE(serverThread.isRunning());
+
+	std::unique_lock<std::mutex> lock(mutex);
+	cv.wait_for(lock, std::chrono::milliseconds(100),[&hardStop](){ return !hardStop;});
+
+	EXPECT_TRUE(hardStop);
+	EXPECT_FALSE(softStop);
+	EXPECT_FALSE(queue->empty());
+
+	serverThread.join();
+}
+
+TEST(MultithreadingTestSuite, TestSoftStopCommand)
+{
+	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
+	ServerThread serverThread(queue);
+	StartCommand startCmd(serverThread);
+
+	bool hardStop = true;
+	bool softStop = false;
+	std::mutex mutex;
+	std::condition_variable cv;
+
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<SoftStopCommand>(serverThread));
+	queue->push(std::make_shared<TestCommand>([&](){
+		std::lock_guard<std::mutex> lock(mutex);
+		hardStop = false;
+		cv.notify_one();
+	}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([&](){
+		std::lock_guard<std::mutex> lock(mutex);
+		softStop = true;
+		cv.notify_one();
+	}));
+
+	EXPECT_FALSE(serverThread.isRunning());
+	startCmd.exec();
+	EXPECT_TRUE(serverThread.isRunning());
+
+	std::unique_lock<std::mutex> lock(mutex);
+	cv.wait_for(lock, std::chrono::milliseconds(100),[&hardStop](){ return !hardStop;});
+	EXPECT_FALSE(hardStop);
+
+	cv.wait_for(lock, std::chrono::milliseconds(100), [&softStop](){ return softStop;});
+	EXPECT_TRUE(softStop);
+	EXPECT_TRUE(queue->empty());
+
+	serverThread.join();
 }
 
 int main(int argc, char** argv)
