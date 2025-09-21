@@ -1,4 +1,3 @@
+.clangd
 .vscode/
 build/
-CommandProcessor.h
-UObjectImpl.h
