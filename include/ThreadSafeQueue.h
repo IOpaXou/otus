@@ -1,11 +1,13 @@
 #pragma once
 
+#include "IQueue.h"
+
 #include <queue>
 #include <mutex>
 #include <condition_variable>
 
 template <typename T>
-class ThreadSafeQueue
+class ThreadSafeQueue : public IQueue<T>
 {
 public:
     void push(T value)

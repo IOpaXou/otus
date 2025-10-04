@@ -35,3 +35,5 @@ private:
     Point pos;
     Vector velocity;
 };
+
+using MovableObjectPtr = std::shared_ptr<MovableObject>;

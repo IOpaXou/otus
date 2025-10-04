@@ -27,6 +27,11 @@ public:
 		_properties[key] = value;
 	}
 
+	bool hasProperty(const std::string& key)
+	{
+		return _properties.find(key) != _properties.end();
+	}
+
 	static inline std::string LocationProperty = "location";
 	static inline std::string VelocityProperty = "velocity";
 	static inline std::string FinishProperty = "finish";

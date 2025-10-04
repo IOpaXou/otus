@@ -6,15 +6,15 @@
 class MoveCommand : public ICommand
 {
 public:
-	explicit MoveCommand(IMovable& mObj) : _mObj(mObj) {}
+	explicit MoveCommand(IMovablePtr mObj) : _mObj(mObj) {}
 
 	void exec() override
 	{
-		const auto startLoc = _mObj.getLocation();
-		const auto velocity = _mObj.getVelocity();
-		_mObj.setLocation({startLoc.first + velocity.first, startLoc.second + velocity.second});
+		const auto startLoc = _mObj->getLocation();
+		const auto velocity = _mObj->getVelocity();
+		_mObj->setLocation({startLoc.first + velocity.first, startLoc.second + velocity.second});
 	}
 
 private:
-	IMovable& _mObj;
+	IMovablePtr _mObj;
 };

@@ -42,7 +42,12 @@ public:
             try
             {
                 auto result = factory(args);
-                if (!result.has_value())
+
+                if constexpr (std::is_same_v<T, void>)
+                {
+                    return;
+                }
+                else if (!result.has_value())
                 {
                     if constexpr (std::is_default_constructible_v<T>)
                     {
@@ -52,11 +57,6 @@ public:
                     {
                         throw std::runtime_error("Cannot convert empty value to non-default-constructible type for dependency: " + key);
                     }
-                }
-
-                if constexpr (std::is_same_v<T, void>)
-                {
-                    return;
                 }
                 else
                 {

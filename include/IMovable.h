@@ -2,6 +2,8 @@
 
 #include "Defs.h"
 
+#include <memory>
+
 class IMovable
 {
 public:
@@ -11,3 +13,5 @@ public:
 	virtual void setVelocity(const Vector&) = 0;
 	virtual void finish() = 0;
 };
+
+using IMovablePtr = std::shared_ptr<IMovable>;
