@@ -31,6 +31,14 @@
 #include "StartCommand.h"
 #include "TestCommand.h"
 
+#include "GameMessage.h"
+#include "GameQueueRepositoryImpl.h"
+#include "HttpEndpoint.h"
+#include "InterpretCommand.h"
+#include "IGameQueueRepository.h"
+#include "IQueueImpl.h"
+#include "TestDependencies.h"
+
 #include <chrono>
 #include <climits>
 #include <gtest/gtest.h>
@@ -313,6 +321,8 @@ public:
 	void finish() override {}
 };
 
+using MovableButNotGetLocatablePtr = std::shared_ptr<MovableButNotGetLocatable>;
+
 class MovableButNotGetVelocitable : public IMovable
 {
 public:
@@ -325,6 +335,8 @@ public:
 	void finish() override {}
 };
 
+using MovableButNotGetVelocitablePtr = std::shared_ptr<MovableButNotGetVelocitable>;
+
 class MovableButNotSetLocatable : public IMovable
 {
 public:
@@ -336,6 +348,8 @@ public:
 	void setVelocity(const Vector&) override {}
 	void finish() override {}
 };
+
+using MovableButNotSetLocatablePtr = std::shared_ptr<MovableButNotSetLocatable>;
 
 const auto EPSILON = 1e-9;
 
@@ -373,17 +387,17 @@ TEST(MoveTestSuite, MoveObject)
 {
 	constexpr Point FinalPos {5, 8};
 
-	MovableObject mobj(InitialPos, InitialVelocity);
+	MovableObjectPtr mobj = std::make_shared<MovableObject>(InitialPos, InitialVelocity);
 
 	MoveCommand move(mobj);
 	move.exec();
 
-	ASSERT_EQ(mobj.getLocation(), FinalPos);
+	ASSERT_EQ(mobj->getLocation(), FinalPos);
 }
 
 TEST(MoveTestSuite, MoveNoGetLocationObject)
 {
-	MovableButNotGetLocatable mobj;
+	MovableButNotGetLocatablePtr mobj = std::make_shared<MovableButNotGetLocatable>();
 	MoveCommand move(mobj);
 
 	EXPECT_THROW(move.exec(), std::runtime_error);
@@ -391,7 +405,7 @@ TEST(MoveTestSuite, MoveNoGetLocationObject)
 
 TEST(MoveTestSuite, MoveNoVelocityObject)
 {
-	MovableButNotGetVelocitable mobj;
+	MovableButNotGetVelocitablePtr mobj = std::make_shared<MovableButNotGetVelocitable>();
 	MoveCommand move(mobj);
 
 	EXPECT_THROW(move.exec(), std::runtime_error);
@@ -399,7 +413,7 @@ TEST(MoveTestSuite, MoveNoVelocityObject)
 
 TEST(MoveTestSuite, MoveNoSetLocationObject)
 {
-	MovableButNotSetLocatable mobj;
+	MovableButNotSetLocatablePtr mobj = std::make_shared<MovableButNotSetLocatable>();
 	MoveCommand move(mobj);
 
 	EXPECT_THROW(move.exec(), std::runtime_error);
@@ -516,7 +530,7 @@ TEST(CommandTestSuite, BurnFuel)
 TEST(CommandTestSuite, MacroCommandEnoughFuel)
 {
 	FuelableObject fObj(InitialFuel, InitalConsumption);
-	MovableObject mObj(InitialPos, InitialVelocity);
+	MovableObjectPtr mObj = std::make_shared<MovableObject>(InitialPos, InitialVelocity);
 
 	std::vector<ICommandUPtr> commands;
 	commands.push_back(std::make_unique<CheckFuelCommand>(fObj));
@@ -527,13 +541,13 @@ TEST(CommandTestSuite, MacroCommandEnoughFuel)
 
 	EXPECT_NO_THROW(macroCommand.exec());
 	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 7.0);
-	EXPECT_EQ(mObj.getLocation(), Point(5.0, 8.0));
+	EXPECT_EQ(mObj->getLocation(), Point(5.0, 8.0));
 }
 
 TEST(CommandTestSuite, MacroCommandNotEnoughFuel)
 {
 	FuelableObject fObj(2.0, InitalConsumption);
-	MovableObject mObj(InitialPos, InitialVelocity);
+	MovableObjectPtr mObj = std::make_shared<MovableObject>(InitialPos, InitialVelocity);
 
 	std::vector<ICommandUPtr> commands;
 	commands.push_back(std::make_unique<CheckFuelCommand>(fObj));
@@ -544,7 +558,7 @@ TEST(CommandTestSuite, MacroCommandNotEnoughFuel)
 
 	EXPECT_THROW(macroCommand.exec(), CommandException);
 	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 2.0);
-	EXPECT_EQ(mObj.getLocation(), InitialPos);
+	EXPECT_EQ(mObj->getLocation(), InitialPos);
 }
 
 TEST(CommandTestSuite, ChangeVelocityCommandForUnmovableObject)
@@ -724,7 +738,6 @@ TEST(IoCTestSuite, Multithreading)
 
 TEST(AdapterTestSuite, TestAdapterGenerator)
 {
-	using IMovablePtr = std::shared_ptr<IMovable>;
 	RegisterIMovableTestMovableAdapter();
 
 	UObjectPtr spaceship = std::make_shared<UObject>();
@@ -905,6 +918,128 @@ TEST(MultithreadingTestSuite, TestSoftStopCommand)
 	EXPECT_TRUE(queue->empty());
 
 	serverThread.join();
+}
+
+TEST(EndpointTestSuite, TestParseJSON)
+{
+	std::string jsonMsg = R"({
+            "gameId": "game_123",
+            "objectId": "ship_456",
+            "commandId": "Move",
+            "args": ["north", 100, 5.5, true]
+        })";
+
+	EXPECT_NO_THROW({
+		auto message = GameMessage::fromJSON(jsonMsg);
+
+	EXPECT_EQ(message.gameId, "game_123");
+	EXPECT_EQ(message.objectId, "ship_456");
+	EXPECT_EQ(message.commandId, "Move");
+	EXPECT_EQ(message.args.size(), 4);
+	EXPECT_EQ(std::any_cast<std::string>(message.args[0]), "north");
+	EXPECT_EQ(std::any_cast<int>(message.args[1]), 100);
+	EXPECT_DOUBLE_EQ(std::any_cast<double>(message.args[2]), 5.5);
+	EXPECT_EQ(std::any_cast<bool>(message.args[3]), true);
+    });
+}
+
+const std::string gameId = "game_123";
+const std::string objectId = "ship_456";
+
+TEST(EndpointTestSuite, TestInterpretCommand)
+{
+	registerHttpEndpointTestDependecies();
+
+	auto testObject = std::make_shared<UObject>();
+	registerFactoryHelper("GameObjects.Get", [testObject](const std::vector<AnyValue>& args) {
+        return testObject;
+    })->exec();
+
+	EXPECT_FALSE(testObject->hasProperty(UObject::LocationProperty));
+	EXPECT_FALSE(testObject->hasProperty(UObject::VelocityProperty));
+
+	GameMessage message {gameId, objectId, "Move", {2.0, 3.0, 4.0, 5.0}};
+	IQueuePtr<ICommandPtr> queue = std::make_shared<IQueueImpl<ICommandPtr>>();
+	auto interpretCommand = std::make_shared<InterpretCommand>(message, queue);
+
+	EXPECT_TRUE(queue->empty());
+	ASSERT_NE(interpretCommand, nullptr);
+	EXPECT_NO_THROW(interpretCommand->exec());
+	EXPECT_FALSE(queue->empty());
+
+	EXPECT_TRUE(testObject->hasProperty(UObject::LocationProperty));
+	EXPECT_TRUE(testObject->hasProperty(UObject::VelocityProperty));
+
+	auto location = testObject->getProperty<Point>(UObject::LocationProperty);
+	auto velocity = testObject->getProperty<Vector>(UObject::VelocityProperty);
+
+	EXPECT_DOUBLE_EQ(location.first, 2.0);
+	EXPECT_DOUBLE_EQ(location.second, 3.0);
+	EXPECT_DOUBLE_EQ(velocity.first, 4.0);
+	EXPECT_DOUBLE_EQ(velocity.second, 5.0);
+
+	ICommandPtr cmd = queue->pop();
+	ASSERT_NE(cmd, nullptr);
+
+	auto moveCommandPtr = std::dynamic_pointer_cast<MoveCommand>(cmd);
+	EXPECT_NE(moveCommandPtr, nullptr);
+}
+
+TEST(EndpointTestSuite, TestInterpretCommandThrow)
+{
+	registerHttpEndpointTestDependecies();
+	GameMessage message {gameId, objectId, "Move", {2.0, 3.0, 4.0}};
+
+	IQueuePtr<ICommandPtr> queue = std::make_shared<IQueueImpl<ICommandPtr>>();
+	auto interpretCommand = std::make_shared<InterpretCommand>(message, queue);
+
+	EXPECT_THROW(interpretCommand->exec(), std::runtime_error);
+}
+
+TEST(EndpointTestSuite, TestHttpEndpoint)
+{
+	const std::string testHost = "localhost";
+	const auto testPort = 8082;
+
+	registerHttpEndpointTestDependecies();
+	
+	IQueuePtr<ICommandPtr> queue = std::make_shared<IQueueImpl<ICommandPtr>>();
+	std::unordered_map<std::string, IQueuePtr<ICommandPtr>> queueMap {{gameId, queue}};
+
+	IGameQueueRepositoryPtr gameQueueRepository = std::make_shared<GameQueueRepositoryImpl>(queueMap);
+
+	HttpEndpoint httpEndpoint(testHost, testPort, gameQueueRepository);
+
+	std::thread endpointThread([&httpEndpoint](){
+		httpEndpoint.start();
+	});
+
+	// Time to launch httpEndpoint
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	EXPECT_TRUE(queue->empty());
+
+	httplib::Client client(testHost, testPort);
+	auto response = client.Post("/command",
+        R"({"gameId": "game_123", "objectId": "ship_456", "commandId": "Move", "args": [1,2,3,4]})",
+        "application/json");
+
+	ASSERT_TRUE(response);
+	EXPECT_EQ(response->status, 200);
+
+	EXPECT_FALSE(queue->empty());
+
+	EXPECT_TRUE(httpEndpoint.isRunning());
+	httpEndpoint.stop();
+	EXPECT_FALSE(httpEndpoint.isRunning());
+
+	ICommandPtr cmd = queue->pop();
+	ASSERT_NE(cmd, nullptr);
+
+	auto interpretCommandPtr = std::dynamic_pointer_cast<InterpretCommand>(cmd);
+	EXPECT_NE(interpretCommandPtr, nullptr);
+
+	endpointThread.join();
 }
 
 int main(int argc, char** argv)
