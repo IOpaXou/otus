@@ -8,21 +8,21 @@
 class RotateCommand : public ICommand
 {
 public:
-    explicit RotateCommand(IRotatable& rObj) : _rObj(rObj) {}
-    
+    explicit RotateCommand(IRotatablePtr rObj) : _rObj(rObj) {}
+
     void exec() override
     {
-        const auto angle = _rObj.getAngle();
-        const auto angVelocity = _rObj.getAngularVelocity();
+        const auto angle = _rObj->getAngle();
+        const auto angVelocity = _rObj->getAngularVelocity();
 
         auto newAngle = std::fmod(angle + angVelocity, 360.0);
         if (newAngle < 0)
         {
             newAngle += 360.0;
         }
-        _rObj.setAngle(newAngle);
+        _rObj->setAngle(newAngle);
     }
 
 private:
-    IRotatable& _rObj;
+    IRotatablePtr _rObj;
 };

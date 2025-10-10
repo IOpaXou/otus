@@ -42,6 +42,7 @@
 #include <chrono>
 #include <climits>
 #include <gtest/gtest.h>
+#include <memory>
 
 namespace
 {
@@ -421,26 +422,26 @@ TEST(MoveTestSuite, MoveNoSetLocationObject)
 
 TEST(RotateTestSuite, RotateObject)
 {
-	RotatableObject robj(10.0, 40.0);
+	RotatableObjectPtr robj = std::make_shared<RotatableObject>(10.0, 40.0);
 	RotateCommand rotate(robj);
 
 	rotate.exec();
 
-	ASSERT_EQ(robj.getAngle(), 50.0);
+	ASSERT_EQ(robj->getAngle(), 50.0);
 
-	RotatableObject robj2(10.0, -40.0);
+	RotatableObjectPtr robj2 = std::make_shared<RotatableObject>(10.0, -40.0);
 	RotateCommand rotate2(robj2);
 
 	rotate2.exec();
 
-	ASSERT_EQ(robj2.getAngle(), 330.0);
+	ASSERT_EQ(robj2->getAngle(), 330.0);
 
-	RotatableObject robj3(350.0, 300.0);
+	RotatableObjectPtr robj3 = std::make_shared<RotatableObject>(350.0, 300.0);
 	RotateCommand rotate3(robj3);
 
 	rotate3.exec();
 
-	ASSERT_EQ(robj3.getAngle(), 290.0);
+	ASSERT_EQ(robj3->getAngle(), 290.0);
 }
 
 // Items 3-4. x^2 + 1 = 0
@@ -501,7 +502,7 @@ const FuelUnit InitalConsumption = 5.0;
 
 TEST(CommandTestSuite, CheckEnoughFuel)
 {
-	FuelableObject fObj(InitialFuel, InitalConsumption);
+	FuelableObjectPtr fObj = std::make_shared<FuelableObject>(InitialFuel, InitalConsumption);
 
 	CheckFuelCommand checkFuelCommand(fObj);
 	EXPECT_NO_THROW(checkFuelCommand.exec());
@@ -509,7 +510,7 @@ TEST(CommandTestSuite, CheckEnoughFuel)
 
 TEST(CommandTestSuite, CheckNotEnoughFuel)
 {
-	FuelableObject fObj(2.0, 3.0);
+	FuelableObjectPtr fObj = std::make_shared<FuelableObject>(2.0, 3.0);
 
 	CheckFuelCommand checkFuelCommand(fObj);
 	EXPECT_THROW(checkFuelCommand.exec(), CommandException);
@@ -517,19 +518,19 @@ TEST(CommandTestSuite, CheckNotEnoughFuel)
 
 TEST(CommandTestSuite, BurnFuel)
 {
-	FuelableObject fObj(InitialFuel, InitalConsumption);
+	FuelableObjectPtr fObj = std::make_shared<FuelableObject>(InitialFuel, InitalConsumption);
 
 	BurnFuelCommand burnFuelCommand(fObj);
 	burnFuelCommand.exec();
-	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 7.0);
+	EXPECT_DOUBLE_EQ(fObj->getFuelLevel(), 7.0);
 
 	burnFuelCommand.exec();
-	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 2.0);
+	EXPECT_DOUBLE_EQ(fObj->getFuelLevel(), 2.0);
 }
 
 TEST(CommandTestSuite, MacroCommandEnoughFuel)
 {
-	FuelableObject fObj(InitialFuel, InitalConsumption);
+	FuelableObjectPtr fObj = std::make_shared<FuelableObject>(InitialFuel, InitalConsumption);
 	MovableObjectPtr mObj = std::make_shared<MovableObject>(InitialPos, InitialVelocity);
 
 	std::vector<ICommandUPtr> commands;
@@ -540,13 +541,13 @@ TEST(CommandTestSuite, MacroCommandEnoughFuel)
 	MacroCommand macroCommand(std::move(commands));
 
 	EXPECT_NO_THROW(macroCommand.exec());
-	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 7.0);
+	EXPECT_DOUBLE_EQ(fObj->getFuelLevel(), 7.0);
 	EXPECT_EQ(mObj->getLocation(), Point(5.0, 8.0));
 }
 
 TEST(CommandTestSuite, MacroCommandNotEnoughFuel)
 {
-	FuelableObject fObj(2.0, InitalConsumption);
+	FuelableObjectPtr fObj = std::make_shared<FuelableObject>(2.0, InitalConsumption);
 	MovableObjectPtr mObj = std::make_shared<MovableObject>(InitialPos, InitialVelocity);
 
 	std::vector<ICommandUPtr> commands;
@@ -557,51 +558,51 @@ TEST(CommandTestSuite, MacroCommandNotEnoughFuel)
 	MacroCommand macroCommand(std::move(commands));
 
 	EXPECT_THROW(macroCommand.exec(), CommandException);
-	EXPECT_DOUBLE_EQ(fObj.getFuelLevel(), 2.0);
+	EXPECT_DOUBLE_EQ(fObj->getFuelLevel(), 2.0);
 	EXPECT_EQ(mObj->getLocation(), InitialPos);
 }
 
 TEST(CommandTestSuite, ChangeVelocityCommandForUnmovableObject)
 {
-	RotatableObject rObj(0, 90);
+	RotatableObjectPtr rObj = std::make_shared<RotatableObject>(0, 90);
 
-	ChangeVelocityCommand changeVelocityCommand(&rObj, nullptr);
+	ChangeVelocityCommand changeVelocityCommand(rObj, nullptr);
 
 	EXPECT_NO_THROW(changeVelocityCommand.exec());
 }
 
 TEST(CommandTestSuite, ChangeVelocityCommandForMovableObject)
 {
-	RotatableObject rObj(0, 90);
-	MovableObject mObj(InitialPos, {3, 0});
+	RotatableObjectPtr rObj = std::make_shared<RotatableObject>(0, 90);
+	MovableObjectPtr mObj = std::make_shared<MovableObject>(InitialPos, Vector{3, 0});
 
-	ChangeVelocityCommand changeVelocityCommand(&rObj, &mObj);
+	ChangeVelocityCommand changeVelocityCommand(rObj, mObj);
 	changeVelocityCommand.exec();
 
-	EXPECT_EQ(mObj.getVelocity(), Point(0, 3));
+	EXPECT_EQ(mObj->getVelocity(), Point(0, 3));
 }
 
 TEST(CommandTestSuite, RotateAndChangeVelocityForUnmovableObject)
 {
-	RotatableObject rObj(0, 90);
+	RotatableObjectPtr rObj = std::make_shared<RotatableObject>(0, 90);
 
-	RotateAndChangeVelocityCommand rotateAndChangeVelocityCommand(&rObj, nullptr);
+	RotateAndChangeVelocityCommand rotateAndChangeVelocityCommand(rObj, nullptr);
 
 	EXPECT_NO_THROW(rotateAndChangeVelocityCommand.exec());
 
-	EXPECT_EQ(rObj.getAngle(), 90);
+	EXPECT_EQ(rObj->getAngle(), 90);
 }
 
 TEST(CommandTestSuite, RotateAndChangeVelocityForMovableObject)
 {
-	RotatableObject rObj(0, 90);
-	MovableObject mObj(InitialPos, {3, 0});
+	RotatableObjectPtr rObj = std::make_shared<RotatableObject>(0, 90);
+	MovableObjectPtr mObj = std::make_shared<MovableObject>(InitialPos, Vector{3, 0});
 
-	RotateAndChangeVelocityCommand rotateAndChangeVelocityCommand(&rObj, &mObj);
+	RotateAndChangeVelocityCommand rotateAndChangeVelocityCommand(rObj, mObj);
 	rotateAndChangeVelocityCommand.exec();
 
-	EXPECT_EQ(rObj.getAngle(), 90);
-	EXPECT_EQ(mObj.getVelocity(), Point(0, 3));
+	EXPECT_EQ(rObj->getAngle(), 90);
+	EXPECT_EQ(mObj->getVelocity(), Point(0, 3));
 }
 
 class IoCSample

@@ -26,3 +26,5 @@ private:
     double _angle;
     double _angularVelocity;
 };
+
+using RotatableObjectPtr = std::shared_ptr<RotatableObject>;

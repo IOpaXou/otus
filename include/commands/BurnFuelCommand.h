@@ -6,13 +6,13 @@
 class BurnFuelCommand : public ICommand
 {
 public:
-    explicit BurnFuelCommand(IFuelable& fObj) : _fObj(fObj) {}
+    explicit BurnFuelCommand(IFuelablePtr fObj) : _fObj(fObj) {}
     void exec() override
     {
-        const auto newFuelLevel = _fObj.getFuelLevel() - _fObj.getFuelConsumptionValue();
-        _fObj.setFuelLevel(newFuelLevel);
+        const auto newFuelLevel = _fObj->getFuelLevel() - _fObj->getFuelConsumptionValue();
+        _fObj->setFuelLevel(newFuelLevel);
     }
 
 private:
-    IFuelable& _fObj;
+    IFuelablePtr _fObj;
 };

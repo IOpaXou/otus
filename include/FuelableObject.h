@@ -26,3 +26,5 @@ private:
     FuelUnit fLevel;
     FuelUnit fConsumption;
 };
+
+using FuelableObjectPtr = std::shared_ptr<FuelableObject>;

@@ -13,15 +13,15 @@ namespace
 class CheckFuelCommand : public ICommand
 {
 public:
-    explicit CheckFuelCommand(IFuelable& fObj) : _fObj(fObj) {}
+    explicit CheckFuelCommand(IFuelablePtr fObj) : _fObj(fObj) {}
     void exec() override
     {
-        if (_fObj.getFuelLevel() < _fObj.getFuelConsumptionValue())
+        if (_fObj->getFuelLevel() < _fObj->getFuelConsumptionValue())
         {
             throw CommandException(NotEnoughFuelMessage);
         }
     }
 
 private:
-    IFuelable& _fObj;
+    IFuelablePtr _fObj;
 };

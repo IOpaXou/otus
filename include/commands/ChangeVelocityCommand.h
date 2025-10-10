@@ -9,7 +9,7 @@
 class ChangeVelocityCommand : public ICommand
 {
 public:
-    explicit ChangeVelocityCommand(IRotatable* rObj, IMovable* mObj) : _rObj(rObj), _mObj(mObj) {}
+    explicit ChangeVelocityCommand(IRotatablePtr rObj, IMovablePtr mObj) : _rObj(rObj), _mObj(mObj) {}
     void exec() override
     {
         if (!_mObj)
@@ -30,6 +30,6 @@ public:
     }
 
 private:
-    IRotatable* _rObj;
-    IMovable* _mObj;
+    IRotatablePtr _rObj;
+    IMovablePtr _mObj;
 };
