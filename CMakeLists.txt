@@ -4,6 +4,7 @@ project(OtusTests)
 file(GLOB_RECURSE SOURCES "src/*cpp")
 
 find_package(GTest REQUIRED)
+find_package(OpenSSL REQUIRED)
 include_directories(${GTEST_INCLUDE_DIRS})
 
 include_directories(include include/commands)
@@ -11,5 +12,6 @@ include_directories(include include/commands)
 add_executable(tests ${SOURCES})
 
 target_link_libraries(tests ${GTEST_LIBRARIES})
+target_link_libraries(tests OpenSSL::SSL)
 
 add_test(NAME tests COMMAND tests)

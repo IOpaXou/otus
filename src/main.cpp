@@ -39,6 +39,11 @@
 #include "IQueueImpl.h"
 #include "TestDependencies.h"
 
+#include "AuthService.h"
+#include "JWTUtils.h"
+
+#include "json.hpp"
+
 #include <chrono>
 #include <climits>
 #include <gtest/gtest.h>
@@ -1003,7 +1008,7 @@ TEST(EndpointTestSuite, TestHttpEndpoint)
 	const auto testPort = 8082;
 
 	registerHttpEndpointTestDependecies();
-	
+
 	IQueuePtr<ICommandPtr> queue = std::make_shared<IQueueImpl<ICommandPtr>>();
 	std::unordered_map<std::string, IQueuePtr<ICommandPtr>> queueMap {{gameId, queue}};
 
@@ -1040,6 +1045,113 @@ TEST(EndpointTestSuite, TestHttpEndpoint)
 	auto interpretCommandPtr = std::dynamic_pointer_cast<InterpretCommand>(cmd);
 	EXPECT_NE(interpretCommandPtr, nullptr);
 
+	endpointThread.join();
+}
+
+TEST(AuthorizationTestSuite, TestJWT)
+{
+    std::string privateKey, publicKey;
+    JWTUtils::generateRSAKeys(privateKey, publicKey);
+
+    std::string userId = "test";
+    std::string gameId = "game_1_1234567890";
+
+    std::string token = JWTUtils::generateToken(userId, gameId, privateKey);
+    bool isValid = JWTUtils::verifyToken(token, publicKey);
+    EXPECT_TRUE(isValid);
+
+    std::string invalidToken = token.substr(0, token.length() - 5) + "invalid";
+    bool isInvalid = JWTUtils::verifyToken(invalidToken, publicKey);
+    EXPECT_FALSE(isInvalid);
+
+    std::string wrongPrivateKey, wrongPublicKey;
+    JWTUtils::generateRSAKeys(wrongPrivateKey, wrongPublicKey);
+
+    bool isWrongKey = JWTUtils::verifyToken(token, wrongPublicKey);
+    EXPECT_FALSE(isWrongKey);
+}
+
+TEST(AuthorizationTestSuite, TestCreateGame)
+{
+	AuthService authService;
+
+	const std::string owner = "owner";
+	const std::vector<std::string> participants {"part1", "part2"};
+	auto newGameId = authService.createGame(owner, participants);
+	EXPECT_TRUE(!newGameId.empty());
+	EXPECT_EQ(newGameId.find("game_"), 0);
+}
+
+TEST(AuthorizationTestSuite, TestIssueToken)
+{
+	AuthService authService;
+
+	const std::string owner = "owner";
+	const std::vector<std::string> participants {"part1", "part2"};
+
+	auto newGameId = authService.createGame(owner, participants);
+
+	std::string token;
+	EXPECT_NO_THROW(token = authService.issueToken(newGameId, "part1"));
+	EXPECT_TRUE(!token.empty());
+	EXPECT_THROW(token = authService.issueToken(newGameId, "part3"), std::runtime_error);
+	EXPECT_THROW(token = authService.issueToken("game_13123", "part1"), std::runtime_error);
+}
+
+TEST(AuthorizationTestSuite, TestJWTVerification)
+{
+	const std::string testHost = "localhost";
+	const auto testPort = 8082;
+
+	registerHttpEndpointTestDependecies();
+
+	IQueuePtr<ICommandPtr> queue = std::make_shared<IQueueImpl<ICommandPtr>>();
+	std::unordered_map<std::string, IQueuePtr<ICommandPtr>> queueMap;
+
+	IGameQueueRepositoryPtr gameQueueRepository = std::make_shared<GameQueueRepositoryImpl>(queueMap);
+
+	HttpEndpoint httpEndpoint(testHost, testPort, gameQueueRepository);
+	httpEndpoint.setCheckAuth(true);
+
+	std::thread endpointThread([&httpEndpoint](){
+		httpEndpoint.start();
+	});
+
+	// Time to launch httpEndpoint
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	EXPECT_TRUE(queue->empty());
+
+	httplib::Client client(testHost, testPort);
+	auto response = client.Post("/auth/game/create",
+		R"({"owner": "owner", "participants": ["part1", "part2"]})","application/json");
+	EXPECT_EQ(response->status, 201);
+
+	auto json = nlohmann::json::parse(response->body);
+	std::string gameId = json["gameId"];
+	auto createdGame = gameQueueRepository->findGameQueueById(gameId);
+	EXPECT_TRUE(createdGame);
+
+	std::string authRequest = R"({"userId": "part2", "gameId": ")" + gameId + R"("})";
+	response = client.Post("/auth/token",authRequest,"application/json");
+	EXPECT_EQ(response->status, 200);
+
+	json = nlohmann::json::parse(response->body);
+	std::string token = json["token"];
+	EXPECT_TRUE(!token.empty());
+
+	response = client.Post("/command",
+	R"({"gameId": "game_123", "objectId": "ship_456", "commandId": "Move", "args": [1,2,3,4]})",
+	"application/json");
+	EXPECT_EQ(response->status, 403);
+
+	std::string commandRequest =  R"({"gameId": ")" + gameId +
+								  R"(", "jwt": ")" + token +
+								  R"(", "objectId": "ship_456", "commandId": "Move", "args": [1,2,3,4]})";
+	response = client.Post("/command", commandRequest, "application/json");
+	EXPECT_EQ(response->status, 200);
+
+	httpEndpoint.stop();
 	endpointThread.join();
 }
 
