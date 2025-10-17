@@ -2,7 +2,6 @@
 
 #include "Defs.h"
 
-#include <json_fwd.hpp>
 #include <string>
 
 struct GameMessage
@@ -11,6 +10,7 @@ struct GameMessage
     std::string objectId;
     std::string commandId;
     std::vector<AnyValue> args;
+    std::string jwt;
 
     static GameMessage fromJSON(const std::string& jsonStr);
 };

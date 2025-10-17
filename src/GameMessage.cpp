@@ -1,5 +1,4 @@
 #include "GameMessage.h"
-#include "Defs.h"
 #include "json.hpp"
 
 #include <stdexcept>
@@ -77,6 +76,11 @@ GameMessage GameMessage::fromJSON(const std::string& jsonStr)
         msg.gameId = j["gameId"];
         msg.objectId = j["objectId"];
         msg.commandId = j["commandId"];
+
+        if (j.contains("jwt"))
+        {
+            msg.jwt = j["jwt"];
+        }
 
         if (msg.gameId.empty() || msg.objectId.empty() || msg.commandId.empty())
         {
