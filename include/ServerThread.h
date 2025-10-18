@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ICommand.h"
+#include "IState.h"
 #include "ThreadSafeQueue.h"
 
 #include <thread>
@@ -10,7 +11,7 @@ using ThreadSafeQueueCommandPtr = std::shared_ptr<ThreadSafeQueue<ICommandPtr>>;
 class ServerThread
 {
 public:
-    ServerThread(ThreadSafeQueueCommandPtr queue);
+    ServerThread(ThreadSafeQueueCommandPtr queue, IStatePtr state);
     
     void start();
     void stop();
@@ -20,6 +21,8 @@ public:
     
     bool isRunning() const;
 
+    IStatePtr state() const;
+
 private:
     void run();
 
@@ -28,4 +31,5 @@ private:
     std::unique_ptr<std::thread> _thread;
     bool _isRunning = false;
     bool _isSoftStopActivated = false;
+    IStatePtr _state;
 };

@@ -2,11 +2,9 @@
 
 #include "ICommand.h"
 
-class HardStopCommand : public ICommand
+class RunCommand : public ICommand
 {
 public:
-    HardStopCommand() {}
-
     void exec() override
     {
     }
