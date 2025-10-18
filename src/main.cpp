@@ -41,8 +41,12 @@
 
 #include "AuthService.h"
 #include "JWTUtils.h"
-
 #include "json.hpp"
+
+#include "NormalState.h"
+#include "MoveToCommand.h"
+#include "MoveToState.h"
+#include "RunCommand.h"
 
 #include <chrono>
 #include <climits>
@@ -800,7 +804,8 @@ TEST(AdapterTestSuite, TestAdapterGenerator)
 TEST(MultithreadingTestSuite, TestStartCommand)
 {
 	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
-	ServerThread serverThread(queue);
+	IStatePtr state = std::make_shared<NormalState>();
+	ServerThread serverThread(queue, state);
 	StartCommand startCmd(serverThread);
 
 	EXPECT_FALSE(serverThread.isRunning());
@@ -814,7 +819,8 @@ TEST(MultithreadingTestSuite, TestStartCommand)
 TEST(MultithreadingTestSuite, TestConditionalStartCommand)
 {
 	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
-	ServerThread serverThread(queue);
+	IStatePtr state = std::make_shared<NormalState>();
+	ServerThread serverThread(queue, state);
 	StartCommand startCmd(serverThread);
 
 	std::thread::id serverThreadID;
@@ -848,7 +854,8 @@ TEST(MultithreadingTestSuite, TestConditionalStartCommand)
 TEST(MultithreadingTestSuite, TestHardStopCommand)
 {
 	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
-	ServerThread serverThread(queue);
+	IStatePtr state = std::make_shared<NormalState>();
+	ServerThread serverThread(queue, state);
 	StartCommand startCmd(serverThread);
 
 	bool hardStop = true;
@@ -859,7 +866,7 @@ TEST(MultithreadingTestSuite, TestHardStopCommand)
 	queue->push(std::make_shared<TestCommand>([](){}));
 	queue->push(std::make_shared<TestCommand>([](){}));
 	queue->push(std::make_shared<TestCommand>([](){}));
-	queue->push(std::make_shared<HardStopCommand>(serverThread));
+	queue->push(std::make_shared<HardStopCommand>());
 	queue->push(std::make_shared<TestCommand>([&](){
 		std::lock_guard<std::mutex> lock(mutex);
 		hardStop = false;
@@ -887,7 +894,8 @@ TEST(MultithreadingTestSuite, TestHardStopCommand)
 TEST(MultithreadingTestSuite, TestSoftStopCommand)
 {
 	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
-	ServerThread serverThread(queue);
+	IStatePtr state = std::make_shared<NormalState>();
+	ServerThread serverThread(queue, state);
 	StartCommand startCmd(serverThread);
 
 	bool hardStop = true;
@@ -1153,6 +1161,118 @@ TEST(AuthorizationTestSuite, TestJWTVerification)
 
 	httpEndpoint.stop();
 	endpointThread.join();
+}
+
+TEST(StateTestSuite, TestHardStopCommand)
+{
+	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
+	IStatePtr state = std::make_shared<NormalState>();
+	ServerThread serverThread(queue, state);
+
+	bool hardStop = true;
+	std::mutex mutex;
+	std::condition_variable cv;
+
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<HardStopCommand>());
+	queue->push(std::make_shared<TestCommand>([&](){
+		std::lock_guard<std::mutex> lock(mutex);
+		hardStop = false;
+		cv.notify_one();
+	}));
+
+	serverThread.start();
+	EXPECT_TRUE(serverThread.isRunning());
+
+	std::unique_lock<std::mutex> lock(mutex);
+	cv.wait_for(lock, std::chrono::milliseconds(100),[&serverThread](){ return !serverThread.isRunning();});
+
+	EXPECT_FALSE(serverThread.isRunning());
+	EXPECT_TRUE(hardStop);
+	EXPECT_FALSE(queue->empty());
+
+	auto& stateRef = *serverThread.state();
+	EXPECT_EQ(typeid(stateRef), typeid(NormalState));
+
+	serverThread.join();
+}
+
+TEST(StateTestSuite, TestMoveToCommand)
+{
+	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
+	IStatePtr state = std::make_shared<NormalState>();
+	ServerThread serverThread(queue, state);
+
+	std::string defaultScope = "default";
+	IoC::Resolve<ICommandPtr>("Scopes.Current", {defaultScope})->exec();
+
+	IQueuePtr<ICommandPtr> backupQueue = std::make_shared<IQueueImpl<ICommandPtr>>();
+	registerFactoryHelper("Queue.Backup", [backupQueue](const std::vector<AnyValue>&){
+		return backupQueue;
+	})->exec();
+
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<MoveToCommand>());
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<TestCommand>([](){}));
+	queue->push(std::make_shared<HardStopCommand>());
+
+	EXPECT_TRUE(backupQueue->empty());
+	serverThread.start();
+	EXPECT_TRUE(serverThread.isRunning());
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	EXPECT_TRUE(queue->empty());
+	EXPECT_FALSE(backupQueue->empty());
+
+	auto& stateRef = *serverThread.state();
+	EXPECT_EQ(typeid(stateRef), typeid(MoveToState));
+
+	serverThread.join();
+}
+
+TEST(StateTestSuite, TestRunCommand)
+{
+	ThreadSafeQueueCommandPtr queue = std::make_shared<ThreadSafeQueue<ICommandPtr>>();
+	IStatePtr state = std::make_shared<MoveToState>();
+	ServerThread serverThread(queue, state);
+
+	std::string defaultScope = "default";
+	IoC::Resolve<ICommandPtr>("Scopes.Current", {defaultScope})->exec();
+
+	IQueuePtr<ICommandPtr> backupQueue = std::make_shared<IQueueImpl<ICommandPtr>>();
+	registerFactoryHelper("Queue.Backup", [backupQueue](const std::vector<AnyValue>&){
+		return backupQueue;
+	})->exec();
+
+	int count = 0;
+	queue->push(std::make_shared<TestCommand>([&count](){count++;}));
+	queue->push(std::make_shared<TestCommand>([&count](){count++;}));
+	queue->push(std::make_shared<RunCommand>());
+	queue->push(std::make_shared<TestCommand>([&count](){count++;}));
+	queue->push(std::make_shared<TestCommand>([&count](){count++;}));
+	queue->push(std::make_shared<TestCommand>([&count](){count++;}));
+	queue->push(std::make_shared<HardStopCommand>());
+
+	EXPECT_TRUE(backupQueue->empty());
+	serverThread.start();
+	EXPECT_TRUE(serverThread.isRunning());
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	EXPECT_TRUE(queue->empty());
+	EXPECT_FALSE(backupQueue->empty());
+
+	auto& stateRef = *serverThread.state();
+	EXPECT_EQ(typeid(stateRef), typeid(NormalState));
+	EXPECT_EQ(count, 3);
+
+	serverThread.join();
 }
 
 int main(int argc, char** argv)
