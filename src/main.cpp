@@ -940,7 +940,7 @@ TEST(EndpointTestSuite, TestParseJSON)
             "gameId": "game_123",
             "objectId": "ship_456",
             "commandId": "Move",
-            "args": ["north", 100, 5.5, true]
+            "args": ["north", 100, 5.5, true, [1, 2]]
         })";
 
 	EXPECT_NO_THROW({
@@ -949,12 +949,35 @@ TEST(EndpointTestSuite, TestParseJSON)
 	EXPECT_EQ(message.gameId, "game_123");
 	EXPECT_EQ(message.objectId, "ship_456");
 	EXPECT_EQ(message.commandId, "Move");
-	EXPECT_EQ(message.args.size(), 4);
+	EXPECT_EQ(message.args.size(), 5);
 	EXPECT_EQ(std::any_cast<std::string>(message.args[0]), "north");
 	EXPECT_EQ(std::any_cast<int>(message.args[1]), 100);
 	EXPECT_DOUBLE_EQ(std::any_cast<double>(message.args[2]), 5.5);
 	EXPECT_EQ(std::any_cast<bool>(message.args[3]), true);
     });
+
+	std::string jsonMsg2 = R"({
+            "gameId": "game_123",
+            "objectId": "ship_456",
+            "commandId": "Move",
+            "args": [,,,,]
+        })";
+	EXPECT_THROW(
+		auto message = GameMessage::fromJSON(jsonMsg2), std::runtime_error);
+
+	std::string jsonMsg3 = R"({
+            "gameId": "game_123",
+            "objectId": "ship_456",
+            "commandId": "Move",
+            "args": {
+				"val": "north",
+				"digit": 100,
+				"float": 5.5,
+				"logic": true
+			}
+        })";
+
+	EXPECT_NO_THROW(GameMessage::fromJSON(jsonMsg3));
 }
 
 const std::string gameId = "game_123";

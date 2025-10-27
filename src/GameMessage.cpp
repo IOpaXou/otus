@@ -25,8 +25,6 @@ namespace
                 args.push_back(elem.get<bool>());
             } else if (elem.is_string()) {
                 args.push_back(elem.get<std::string>());
-            } else if (elem.is_null()) {
-                args.push_back(nullptr);
             } else if (elem.is_array()) {
                 args.push_back(parseArray(elem));
             }
