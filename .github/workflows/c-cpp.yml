@@ -15,11 +15,25 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Install dependencies
-      run: sudo apt install cmake libgtest-dev
+      run: sudo apt install cmake libgtest-dev lcov
     - name: Build and run tests
       run: |
         mkdir build
         cd build
-        cmake ..
+        cmake -DENABLE_COVERAGE=ON ..
         make
         ./tests
+    - name: Generate coverage report
+      run: |
+        cd build
+        lcov --capture --directory . --output-file coverage.info --ignore-errors mismatch,gcov,negative
+        lcov --remove coverage.info '/usr/*' '*/include/httplib.h' '*/include/json.hpp' '*/include/json_fwd.hpp' --output-file coverage.filtered.info --ignore-errors unused
+        lcov --summary coverage.filtered.info
+        genhtml coverage.filtered.info --output-directory coverage-report
+        echo "Coverage report generated"
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: build/coverage-report/
+        retention-days: 30
