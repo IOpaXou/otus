@@ -1,12 +1,11 @@
-#include "AuthRequest.h"
-#include "AuthService.h"
-#include "GameInfo.h"
 #include "HttpEndpoint.h"
 #include "InterpretCommand.h"
 #include "JWTUtils.h"
+#include "httplib.h"
+#include "json.hpp"
 
 HttpEndpoint::HttpEndpoint(const std::string& host, int port, IGameQueueRepositoryPtr gameQueueRepository) :
-    _host(host), _port(port), _gameQueueRepository(gameQueueRepository), _authService(std::make_unique<AuthService>())
+    _host(host), _port(port), _gameQueueRepository(gameQueueRepository)
 {
     _server = std::make_unique<httplib::Server>();
     _server->Post("/command", [this](const httplib::Request& req, httplib::Response& res)
@@ -25,10 +24,7 @@ HttpEndpoint::HttpEndpoint(const std::string& host, int port, IGameQueueReposito
 
 HttpEndpoint::~HttpEndpoint()
 {
-    if (_isRunning)
-    {
-        stop();
-    }
+    stop();
 }
 
 void HttpEndpoint::handleRequest(const httplib::Request& req, httplib::Response& res)
@@ -38,7 +34,15 @@ void HttpEndpoint::handleRequest(const httplib::Request& req, httplib::Response&
         GameMessage message = GameMessage::fromJSON(req.body);
         if (isCheckAuth())
         {
-            if (!JWTUtils::verifyToken(message.jwt, _authService->getPublicKey()))
+            const auto publicKey = requestPublicKey(req, res);
+            if (publicKey.empty())
+            {
+                res.status = 403;
+                res.set_content(R"({"error": "Can't get public key"})", "application/json");
+                return;
+            }
+
+            if (!JWTUtils::verifyToken(message.jwt, publicKey))
             {
                 res.status = 403;
                 res.set_content(R"({"error": "Invalid token"})", "application/json");
@@ -70,59 +74,50 @@ void HttpEndpoint::handleRequest(const httplib::Request& req, httplib::Response&
 
 void HttpEndpoint::handleCreateGame(const httplib::Request& req, httplib::Response& res)
 {
-    try
-    {
-        GameInfo gameInfo = GameInfo::fromJSON(req.body);
-
-        if (gameInfo.owner.empty()) {
-            res.status = 400;
-            res.set_content(R"({"error": "Owner is required"})", "application/json");
-            return;
-        }
-
-        if (gameInfo.participants.empty()) {
-            res.status = 400;
-            res.set_content(R"({"error": "At least one participant is required"})", "application/json");
-            return;
-        }
-
-        std::string gameId = _authService->createGame(gameInfo.owner, gameInfo.participants);
-
-        auto gameQueue = _gameQueueRepository->createGameQueueWithId(gameId);
-
-        res.status = 201;
-        std::string response = R"({"status": "success", "gameId":")" + gameId + R"("})";
-        res.set_content(response, "application/json");
-    }
-    catch (const std::exception& e)
-    {
-        res.status = 500;
-        res.set_content(R"({"error": "Wrong game creation apply"})", "application/json");
-    }
+    forwardAuthRequest("/auth/game/create", req, res);
 }
 
 void HttpEndpoint::handleIssueToken(const httplib::Request& req, httplib::Response& res)
 {
-    try
+    forwardAuthRequest("/auth/token", req, res);
+}
+
+std::string HttpEndpoint::requestPublicKey(const httplib::Request& req, httplib::Response& res)
+{
+    auto authRes = _authClient->Post("/auth/key/public", req.body, "application/json");
+    if (!authRes || authRes->status != 200)
     {
-        auto authReq = AuthRequest::fromJSON(req.body);
-
-        if (authReq.gameId.empty() || authReq.userId.empty()) {
-            res.status = 400;
-            res.set_content(R"({"error": "userId and gameId are required"})", "application/json");
-            return;
-        }
-
-        std::string token = _authService->issueToken(authReq.gameId, authReq.userId);
-
-        res.status = 200;
-        std::string response = "{\"token\": \"" + token + "\"}";
-        res.set_content(response, "application/json");
+        return "";
     }
-    catch (const std::exception& e)
+
+    auto json = nlohmann::json::parse(authRes->body);
+    return json["publicKey"];
+}
+
+void HttpEndpoint::forwardAuthRequest(const std::string& path, const httplib::Request& req, httplib::Response& res)
+{
+    if (!_authClient)
     {
-        res.status = 400;
-        res.set_content(R"({"error": "Failed to issue token"})", "application/json");
+        res.status = 502;
+        res.set_content(R"({"error": "Auth service unavailable"})", "application/json");
+        return;
+    }
+
+   try
+   {
+        auto authRes = _authClient->Post(path, req.body, "application/json");
+
+        if (authRes) {
+            res.status = authRes->status;
+            res.set_content(authRes->body, authRes->get_header_value("Content-Type").c_str());
+        } else {
+            res.status = 502;
+            res.set_content(R"({"error": "Auth service unavailable"})", "application/json");
+        }
+    }
+    catch (const std::exception& e) {
+        res.status = 500;
+        res.set_content(R"({"error": "Internal server error"})", "application/json");
     }
 }
 
@@ -134,11 +129,9 @@ void HttpEndpoint::start()
     }
 
     _isRunning = true;
-    std::thread serverThread([this]() {
+    _serverThread = std::make_unique<std::thread>([this]() {
         _server->listen(_host, _port);
     });
-
-    serverThread.join();
 }
 
 void HttpEndpoint::stop()
@@ -148,6 +141,11 @@ void HttpEndpoint::stop()
         _server->stop();
         _isRunning = false;
     }
+
+    if (_serverThread->joinable())
+    {
+        _serverThread->join();
+    }
 }
 
 bool HttpEndpoint::isRunning() const
@@ -155,9 +153,23 @@ bool HttpEndpoint::isRunning() const
     return _isRunning;
 }
 
+void HttpEndpoint::setAuthAddress(const std::string& host, int port)
+{
+    _authHost = host;
+    _authPort = port;
+}
+
 void HttpEndpoint::setCheckAuth(bool isCheckAuth)
 {
-    _isCheckAuth = isCheckAuth;
+    if (_isCheckAuth != isCheckAuth)
+    {
+        _isCheckAuth = isCheckAuth;
+
+        if (_isCheckAuth && !_authClient)
+        {
+            _authClient = std::make_unique<httplib::Client>(_authHost, _authPort);
+        }
+    }
 }
 
 bool HttpEndpoint::isCheckAuth()

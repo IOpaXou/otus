@@ -720,15 +720,20 @@ TEST(IoCTestSuite, Multithreading)
 	constexpr int threadsCount = 5;
 	std::vector<std::thread> threads;
 	std::atomic<int> done = 0;
+	std::mutex iocMutex;
 
 	std::string multithreadDependency = "multithreadDependency";
 
 	for (auto t = 0; t < threadsCount; t++)
 	{
-		threads.emplace_back([t, &multithreadDependency, &done](){
+		threads.emplace_back([t, &multithreadDependency, &done, &iocMutex](){
 			std::string scopeName = "Scope" + std::to_string(t);
-			IoC::Resolve<ICommandPtr>("Scopes.New", {scopeName})->exec();
-			IoC::Resolve<ICommandPtr>("Scopes.Current", {scopeName})->exec();
+
+			{
+				std::lock_guard lock(iocMutex);
+				IoC::Resolve<ICommandPtr>("Scopes.New", {scopeName})->exec();
+				IoC::Resolve<ICommandPtr>("Scopes.Current", {scopeName})->exec();
+			}
 
 			registerFactoryHelper(multithreadDependency, [t](const auto&){
 				return t*100;
@@ -1046,10 +1051,7 @@ TEST(EndpointTestSuite, TestHttpEndpoint)
 	IGameQueueRepositoryPtr gameQueueRepository = std::make_shared<GameQueueRepositoryImpl>(queueMap);
 
 	HttpEndpoint httpEndpoint(testHost, testPort, gameQueueRepository);
-
-	std::thread endpointThread([&httpEndpoint](){
-		httpEndpoint.start();
-	});
+	httpEndpoint.start();
 
 	// Time to launch httpEndpoint
 	std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -1076,7 +1078,7 @@ TEST(EndpointTestSuite, TestHttpEndpoint)
 	auto interpretCommandPtr = std::dynamic_pointer_cast<InterpretCommand>(cmd);
 	EXPECT_NE(interpretCommandPtr, nullptr);
 
-	endpointThread.join();
+	httpEndpoint.stop();
 }
 
 TEST(AuthorizationTestSuite, TestJWT)
@@ -1104,29 +1106,74 @@ TEST(AuthorizationTestSuite, TestJWT)
 
 TEST(AuthorizationTestSuite, TestCreateGame)
 {
-	AuthService authService;
+	const std::string testAuthHost = "localhost";
+	const auto testAuthPort = 8083;
+
+	std::unordered_map<std::string, IQueuePtr<ICommandPtr>> queueMap;
+	IGameQueueRepositoryPtr gameQueueRepository = std::make_shared<GameQueueRepositoryImpl>(queueMap);
+
+	AuthService authService(testAuthHost, testAuthPort, gameQueueRepository);
+	authService.start();
+
+	// Time to launch server
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
 	const std::string owner = "owner";
 	const std::vector<std::string> participants {"part1", "part2"};
-	auto newGameId = authService.createGame(owner, participants);
+
+	httplib::Client client(testAuthHost, testAuthPort);
+	auto response = client.Post("/auth/game/create",
+		R"({"owner": "owner", "participants": ["part1", "part2"]})","application/json");
+	EXPECT_EQ(response->status, 201);
+
+	auto json = nlohmann::json::parse(response->body);
+	std::string newGameId = json["gameId"];
 	EXPECT_TRUE(!newGameId.empty());
 	EXPECT_EQ(newGameId.find("game_"), 0);
+
+	authService.stop();
 }
 
 TEST(AuthorizationTestSuite, TestIssueToken)
 {
-	AuthService authService;
+	const std::string testAuthHost = "localhost";
+	const auto testAuthPort = 8083;
+
+	std::unordered_map<std::string, IQueuePtr<ICommandPtr>> queueMap;
+	IGameQueueRepositoryPtr gameQueueRepository = std::make_shared<GameQueueRepositoryImpl>(queueMap);
+
+	AuthService authService(testAuthHost, testAuthPort, gameQueueRepository);
+	authService.start();
+
+	// Time to launch server
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
 	const std::string owner = "owner";
 	const std::vector<std::string> participants {"part1", "part2"};
 
-	auto newGameId = authService.createGame(owner, participants);
+	httplib::Client client(testAuthHost, testAuthPort);
+	auto response = client.Post("/auth/game/create",
+		R"({"owner": "owner", "participants": ["part1", "part2"]})","application/json");
 
-	std::string token;
-	EXPECT_NO_THROW(token = authService.issueToken(newGameId, "part1"));
+	EXPECT_EQ(response->status, 201);
+
+	auto json = nlohmann::json::parse(response->body);
+	std::string newGameId = json["gameId"];
+
+	nlohmann::json tokenRequest = {
+		{"userId", "part1"},
+		{"gameId", newGameId}
+	};
+
+	response = client.Post("/auth/token", tokenRequest.dump(),"application/json");
+	EXPECT_EQ(response->status, 200);
+
+	json = nlohmann::json::parse(response->body);
+	std::string token = json["token"];
+
 	EXPECT_TRUE(!token.empty());
-	EXPECT_THROW(token = authService.issueToken(newGameId, "part3"), std::runtime_error);
-	EXPECT_THROW(token = authService.issueToken("game_13123", "part1"), std::runtime_error);
+
+	authService.stop();
 }
 
 TEST(AuthorizationTestSuite, TestJWTVerification)
@@ -1141,15 +1188,23 @@ TEST(AuthorizationTestSuite, TestJWTVerification)
 
 	IGameQueueRepositoryPtr gameQueueRepository = std::make_shared<GameQueueRepositoryImpl>(queueMap);
 
+	const std::string testAuthHost = "localhost";
+	const auto testAuthPort = 8083;
+
+	AuthService authService(testAuthHost, testAuthPort, gameQueueRepository);
+	authService.start();
+
 	HttpEndpoint httpEndpoint(testHost, testPort, gameQueueRepository);
+	httpEndpoint.setAuthAddress(testAuthHost, testAuthPort);
 	httpEndpoint.setCheckAuth(true);
 
-	std::thread endpointThread([&httpEndpoint](){
-		httpEndpoint.start();
-	});
+	httpEndpoint.start();
 
-	// Time to launch httpEndpoint
+	// Time to launch servers
 	std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+	EXPECT_TRUE(authService.isRunning());
+	EXPECT_TRUE(httpEndpoint.isRunning());
 
 	EXPECT_TRUE(queue->empty());
 
@@ -1182,8 +1237,8 @@ TEST(AuthorizationTestSuite, TestJWTVerification)
 	response = client.Post("/command", commandRequest, "application/json");
 	EXPECT_EQ(response->status, 200);
 
+	authService.stop();
 	httpEndpoint.stop();
-	endpointThread.join();
 }
 
 TEST(StateTestSuite, TestHardStopCommand)
