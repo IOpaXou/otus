@@ -34,6 +34,8 @@ public:
 
 	static inline std::string LocationProperty = "location";
 	static inline std::string VelocityProperty = "velocity";
+	static inline std::string AngleProperty = "angle";
+	static inline std::string AngularVelocityProperty = "angularVelocity";
 	static inline std::string FinishProperty = "finish";
 
 private:

@@ -2,12 +2,15 @@
 #include "IQueue.h"
 #include "MoveCommand.h"
 #include "QueuePushCommand.h"
+#include "RotateCommand.h"
 #include "TestMovableAdapter.h"
+#include "TestRotatableAdapter.h"
 #include "UObject.h"
 
 void registerHttpEndpointTestDependecies()
 {
     RegisterIMovableTestMovableAdapter();
+    RegisterIRotatableTestRotatableAdapter();
 
     registerFactoryHelper("GameObjects.Get", [](const std::vector<AnyValue>& args)
     {
@@ -48,6 +51,27 @@ void registerHttpEndpointTestDependecies()
         auto mObj = IoC::Resolve<IMovablePtr>("IMovable.Adapter", {uObj});
         return std::make_shared<MoveCommand>(mObj);
     })->exec();
+
+    registerFactoryHelper("Command.Rotate", [] (const std::vector<AnyValue>& args) -> ICommandPtr
+    {
+        if (args.empty())
+        {
+            throw std::runtime_error("UObject required for rotate command");
+        }
+
+        UObjectPtr uObj;
+        try
+        {
+            uObj = std::any_cast<UObjectPtr>(args[0]);
+        }
+        catch (const std::bad_any_cast&)
+        {
+            throw std::runtime_error("Incorrect format for UObject");
+        }
+
+        auto rObj = IoC::Resolve<IRotatablePtr>("IRotatable.Adapter", {uObj});
+        return std::make_shared<RotateCommand>(rObj);
+    })->exec();
     
     registerFactoryHelper("Command.Move.Properties.Set", [] (const std::vector<AnyValue>& args)
     {
@@ -70,6 +94,30 @@ void registerHttpEndpointTestDependecies()
         catch (const std::bad_any_cast& ex)
         {
             throw std::runtime_error("Bad cast for MoveCommand properties " + std::string(ex.what()));
+        }
+
+        return AnyValue{};
+    })->exec();
+
+    registerFactoryHelper("Command.Rotate.Properties.Set", [] (const std::vector<AnyValue>& args)
+    {
+        if (args.size() != 3)
+        {
+            throw std::runtime_error("Rotate properties require UObject, angle, angular velocity");
+        }
+
+        try
+        {
+            auto uObj = std::any_cast<UObjectPtr>(args[0]);
+            double angle = std::any_cast<double>(args[1]);
+            double angularVelocity = std::any_cast<double>(args[2]);
+
+            uObj->setProperty(UObject::AngleProperty, angle);
+            uObj->setProperty(UObject::AngularVelocityProperty, angularVelocity);
+        }
+        catch (const std::bad_any_cast& ex)
+        {
+            throw std::runtime_error("Bad cast for RotateCommand properties " + std::string(ex.what()));
         }
 
         return AnyValue{};

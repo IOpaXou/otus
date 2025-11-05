@@ -37,6 +37,7 @@
 #include "InterpretCommand.h"
 #include "IGameQueueRepository.h"
 #include "IQueueImpl.h"
+#include "SetAngleCommand.h"
 #include "TestDependencies.h"
 
 #include "AuthService.h"
@@ -1045,6 +1046,11 @@ TEST(EndpointTestSuite, TestHttpEndpoint)
 
 	registerHttpEndpointTestDependecies();
 
+	auto testObject = std::make_shared<UObject>();
+	registerFactoryHelper("GameObjects.Get", [testObject](const std::vector<AnyValue>& args) {
+        return testObject;
+    })->exec();
+
 	IQueuePtr<ICommandPtr> queue = std::make_shared<IQueueImpl<ICommandPtr>>();
 	std::unordered_map<std::string, IQueuePtr<ICommandPtr>> queueMap {{gameId, queue}};
 
@@ -1059,12 +1065,16 @@ TEST(EndpointTestSuite, TestHttpEndpoint)
 	EXPECT_TRUE(queue->empty());
 
 	httplib::Client client(testHost, testPort);
-	auto response = client.Post("/command",
-        R"({"gameId": "game_123", "objectId": "ship_456", "commandId": "Move", "args": [1,2,3,4]})",
+	auto responseMove = client.Post("/command",
+        R"({"gameId": "game_123", "objectId": "ship_456", "commandId": "Move", "args": [1.0,2.0,3.0,4.0]})",
         "application/json");
 
-	ASSERT_TRUE(response);
-	EXPECT_EQ(response->status, 200);
+	ASSERT_TRUE(responseMove);
+	EXPECT_EQ(responseMove->status, 200);
+
+	auto responseRotate = client.Post("/command",
+        R"({"gameId": "game_123", "objectId": "ship_456", "commandId": "Rotate", "args": [1.2, 2.3]})",
+        "application/json");
 
 	EXPECT_FALSE(queue->empty());
 
@@ -1072,11 +1082,84 @@ TEST(EndpointTestSuite, TestHttpEndpoint)
 	httpEndpoint.stop();
 	EXPECT_FALSE(httpEndpoint.isRunning());
 
-	ICommandPtr cmd = queue->pop();
-	ASSERT_NE(cmd, nullptr);
+	ICommandPtr cmdMove = queue->pop();
+	ASSERT_NE(cmdMove, nullptr);
 
-	auto interpretCommandPtr = std::dynamic_pointer_cast<InterpretCommand>(cmd);
-	EXPECT_NE(interpretCommandPtr, nullptr);
+	auto interpretCommandMovePtr = std::dynamic_pointer_cast<InterpretCommand>(cmdMove);
+	EXPECT_NE(interpretCommandMovePtr, nullptr);
+
+	EXPECT_FALSE(queue->empty());
+
+	ICommandPtr cmdRotate = queue->pop();
+	ASSERT_NE(cmdRotate, nullptr);
+
+	auto interpretCommandRotatePtr = std::dynamic_pointer_cast<InterpretCommand>(cmdRotate);
+	EXPECT_NE(interpretCommandRotatePtr, nullptr);
+
+	EXPECT_TRUE(queue->empty());
+
+	interpretCommandMovePtr->exec();
+	interpretCommandRotatePtr->exec();
+
+	EXPECT_FALSE(queue->empty());
+
+	registerFactoryHelper("IMovable:getLocation", [](const std::vector<AnyValue>& args) {
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+        return obj->getProperty<Point>(UObject::LocationProperty);
+    })->exec();
+
+	registerFactoryHelper("IMovable:setLocation", [](const std::vector<AnyValue>& args) {
+		auto command = std::make_shared<SetLocationCommand>(args);
+		return std::static_pointer_cast<ICommand>(command);
+    })->exec();
+
+	registerFactoryHelper("IMovable:getVelocity", [](const std::vector<AnyValue>& args) {
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+        return obj->getProperty<Vector>(UObject::VelocityProperty);
+    })->exec();
+
+	ICommandPtr moveCmd = queue->pop();
+	ASSERT_NE(moveCmd, nullptr);
+	moveCmd->exec();
+
+	EXPECT_TRUE(testObject->hasProperty(UObject::LocationProperty));
+	EXPECT_TRUE(testObject->hasProperty(UObject::VelocityProperty));
+
+	auto location = testObject->getProperty<Point>(UObject::LocationProperty);
+	auto velocity = testObject->getProperty<Vector>(UObject::VelocityProperty);
+
+	EXPECT_DOUBLE_EQ(location.first, 4.0);
+	EXPECT_DOUBLE_EQ(location.second, 6.0);
+	EXPECT_DOUBLE_EQ(velocity.first, 3.0);
+	EXPECT_DOUBLE_EQ(velocity.second, 4.0);
+
+	registerFactoryHelper("IRotatable:getAngle", [](const std::vector<AnyValue>& args) {
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+        return obj->getProperty<double>(UObject::AngleProperty);
+    })->exec();
+
+	registerFactoryHelper("IRotatable:getAngularVelocity", [](const std::vector<AnyValue>& args) {
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+        return obj->getProperty<double>(UObject::AngularVelocityProperty);
+    })->exec();
+
+	registerFactoryHelper("IRotatable:setAngle", [](const std::vector<AnyValue>& args) {
+		auto command = std::make_shared<SetAngleCommand>(args);
+		return std::static_pointer_cast<ICommand>(command);
+    })->exec();
+
+	ICommandPtr rotateCmd = queue->pop();
+	ASSERT_NE(rotateCmd, nullptr);
+	rotateCmd->exec();
+
+	EXPECT_TRUE(testObject->hasProperty(UObject::AngleProperty));
+	EXPECT_TRUE(testObject->hasProperty(UObject::AngularVelocityProperty));
+
+	auto angle = testObject->getProperty<double>(UObject::AngleProperty);
+	auto angularVelocity = testObject->getProperty<double>(UObject::AngularVelocityProperty);
+
+	EXPECT_DOUBLE_EQ(angle, 3.5);
+	EXPECT_DOUBLE_EQ(angularVelocity, 2.3);
 
 	httpEndpoint.stop();
 }
@@ -1227,13 +1310,13 @@ TEST(AuthorizationTestSuite, TestJWTVerification)
 	EXPECT_TRUE(!token.empty());
 
 	response = client.Post("/command",
-	R"({"gameId": "game_123", "objectId": "ship_456", "commandId": "Move", "args": [1,2,3,4]})",
+	R"({"gameId": "game_123", "objectId": "ship_456", "commandId": "Move", "args": [1.0,2.0,3.0,4.0]})",
 	"application/json");
 	EXPECT_EQ(response->status, 403);
 
 	std::string commandRequest =  R"({"gameId": ")" + gameId +
 								  R"(", "jwt": ")" + token +
-								  R"(", "objectId": "ship_456", "commandId": "Move", "args": [1,2,3,4]})";
+								  R"(", "objectId": "ship_456", "commandId": "Move", "args": [1.0,2.0,3.0,4.0]})";
 	response = client.Post("/command", commandRequest, "application/json");
 	EXPECT_EQ(response->status, 200);
 
