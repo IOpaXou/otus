@@ -49,6 +49,11 @@
 #include "MoveToState.h"
 #include "RunCommand.h"
 
+#include "CollisionDetectionCommand.h"
+#include "ICollisionDetectorImpl.h"
+#include "MultiNeighborhoodCollisionSystem.h"
+#include "NeighborhoodSystem.h"
+
 #include <chrono>
 #include <climits>
 #include <gtest/gtest.h>
@@ -1435,6 +1440,170 @@ TEST(StateTestSuite, TestRunCommand)
 
 	serverThread.join();
 }
+
+class TestMovable : public IMovable
+{
+public:
+	TestMovable(Point pos, Vector vel) : _pos(pos), _vel(vel) {}
+	Point getLocation() {
+		return _pos;
+	}
+	Vector getVelocity() {
+		return _vel;
+	}
+	void setLocation(const Point& newPos) {
+		_pos = newPos;
+	}
+	void setVelocity(const Vector& newVel) {
+		_vel = newVel;
+	}
+	void finish() {
+	}
+
+private:
+	Point _pos;
+	Vector _vel;
+};
+using TestMovablePtr = std::shared_ptr<TestMovable>;
+
+TEST(CollisionsTestSuite, TestCollisionDetector)
+{
+	RegisterIMovableTestMovableAdapter();
+
+	auto getLocationRegisterCommand = registerFactoryHelper("IMovable:getLocation", [](const std::vector<AnyValue>& args) {
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+        return obj->getProperty<Point>(UObject::LocationProperty);
+    });
+	EXPECT_TRUE(getLocationRegisterCommand);
+	getLocationRegisterCommand->exec();
+
+	auto collisionDetector = std::make_shared<ICollisionDetectorImpl>();
+
+	UObjectPtr spaceship = std::make_shared<UObject>();
+	spaceship->setProperty<Point>(UObject::LocationProperty, Point(100, 200));
+	auto mObj = IoC::Resolve<IMovablePtr>("IMovable.Adapter", {spaceship});
+
+	UObjectPtr spaceship2 = std::make_shared<UObject>();
+	spaceship2->setProperty<Point>(UObject::LocationProperty, Point(110, 200));
+	auto mObj2 = IoC::Resolve<IMovablePtr>("IMovable.Adapter", {spaceship2});
+
+	UObjectPtr spaceship3 = std::make_shared<UObject>();
+	spaceship3->setProperty<Point>(UObject::LocationProperty, Point(101, 200));
+	auto mObj3 = IoC::Resolve<IMovablePtr>("IMovable.Adapter", {spaceship3});
+
+	EXPECT_FALSE(collisionDetector->checkCollision(mObj, mObj2));
+	EXPECT_FALSE(collisionDetector->checkCollision(mObj2, mObj3));
+	EXPECT_TRUE(collisionDetector->checkCollision(mObj, mObj3));
+}
+
+TEST(CollisionsTestSuite, TestNeighborhoodSystem)
+{
+	auto colDetector = std::make_shared<ICollisionDetectorImpl>();
+	auto system = std::make_shared<NeighborhoodSystem>(10.0, Vector(0.0, 0.0), colDetector);
+
+	TestMovablePtr obj1 = std::make_shared<TestMovable>(Point(1.0, 1.0), Vector(2.0, 2.0));
+	NeighborhoodKey key = system->getNeighborhoodKey(obj1->getLocation());
+
+	auto objects = system->getObjectsInNeighborhood(key);
+	EXPECT_EQ(objects.size(), 0);
+	system->addObject(obj1);
+	objects = system->getObjectsInNeighborhood(key);
+	EXPECT_EQ(objects.size(), 1);
+
+	TestMovablePtr obj2 = std::make_shared<TestMovable>(Point(11.0, 1.0), Vector(2.0, 2.0));
+	TestMovablePtr obj3 = std::make_shared<TestMovable>(Point(3.0, 1.0), Vector(2.0, 2.0));
+	system->addObject(obj2);
+	system->addObject(obj3);
+	objects = system->getObjectsInNeighborhood(key);
+	EXPECT_EQ(objects.size(), 2);
+
+	system->removeObject(obj3);
+	objects = system->getObjectsInNeighborhood(key);
+	EXPECT_EQ(objects.size(), 1);
+
+	obj2->setLocation(Point(3.0, 1.0));
+	system->updateObjectPosition(obj2);
+	objects = system->getObjectsInNeighborhood(key);
+	EXPECT_EQ(objects.size(), 2);
+}
+
+class MockNeighborhoodSystem : public NeighborhoodSystem
+{
+public:
+    MockNeighborhoodSystem(double cellSize, Vector offset, ICollisionDetectorPtr colDetector)
+        : NeighborhoodSystem(cellSize, offset, colDetector) {}
+
+    void substituteCommand(NeighborhoodKey key, ICommandPtr cmd) override {
+		lastSubstitutedKey = key;
+        lastSubstitutedCommand = cmd;
+    }
+
+    NeighborhoodKey lastSubstitutedKey;
+    ICommandPtr lastSubstitutedCommand;
+};
+
+TEST(CollisionsTestSuite, TestCollisionDetectionCommand)
+{
+	auto colDetector = std::make_shared<ICollisionDetectorImpl>();
+	auto system = std::make_shared<MockNeighborhoodSystem>(10.0, Vector(0.0, 0.0), colDetector);
+
+	TestMovablePtr obj1 = std::make_shared<TestMovable>(Point(1.0, 1.0), Vector(2.0, 2.0));
+	TestMovablePtr obj2 = std::make_shared<TestMovable>(Point(11.0, 1.0), Vector(2.0, 2.0));
+	TestMovablePtr obj3 = std::make_shared<TestMovable>(Point(3.0, 1.0), Vector(2.0, 2.0));
+
+	system->addObject(obj1);
+	system->addObject(obj2);
+	system->addObject(obj3);
+
+	NeighborhoodKey key = system->getNeighborhoodKey(obj1->getLocation());
+
+    auto cmd = std::make_unique<CollisionDetectionCommand>(obj1, system, colDetector);
+    cmd->exec();
+
+    EXPECT_NE(system->lastSubstitutedCommand, nullptr);
+    auto macroCmd = std::dynamic_pointer_cast<MacroCommand>(system->lastSubstitutedCommand);
+    EXPECT_TRUE(macroCmd);
+
+    EXPECT_EQ(system->lastSubstitutedKey, key);
+}
+
+TEST(CollisionsTestSuite, TestMultiNeighborhoodSystem)
+{
+	auto colDetector = std::make_shared<ICollisionDetectorImpl>();
+	auto msystem = std::make_shared<MultiNeighborhoodCollisionSystem>(10.0, 2, colDetector);
+
+	std::stringstream buffer;
+	std::streambuf* oldCoutBuffer = std::cout.rdbuf();
+
+	std::cout.rdbuf(buffer.rdbuf());
+
+	TestMovablePtr obj1 = std::make_shared<TestMovable>(Point(1.0, 1.0), Vector(2.0, 2.0));
+	TestMovablePtr obj2 = std::make_shared<TestMovable>(Point(11.0, 1.0), Vector(2.0, 2.0));
+	TestMovablePtr obj3 = std::make_shared<TestMovable>(Point(3.0, 1.0), Vector(2.0, 2.0));
+
+	msystem->addObject(obj1);
+	msystem->addObject(obj2);
+	msystem->addObject(obj3);
+
+	msystem->updateObject(obj1);
+	msystem->updateObject(obj2);
+	msystem->updateObject(obj3);
+
+	msystem->checkAllCollisions();
+
+	std::string output = buffer.str();
+	EXPECT_TRUE(output.find("Collision") == std::string::npos);
+
+	obj3->setLocation(Point(1.2, 1.1));
+	msystem->updateObject(obj3);
+	msystem->checkAllCollisions();
+
+	output = buffer.str();
+	EXPECT_TRUE(output.find("Collision") != std::string::npos);
+
+	std::cout.rdbuf(oldCoutBuffer);
+}
+
 
 int main(int argc, char** argv)
 {

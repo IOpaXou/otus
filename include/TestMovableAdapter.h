@@ -13,4 +13,4 @@ END_ADAPTER()
 
 REGISTER_ADAPTER_FACTORY(IMovable, TestMovableAdapter)
 
-using TestMovablePtr = std::shared_ptr<TestMovableAdapter>;
+using TestMovableAdapterPtr = std::shared_ptr<TestMovableAdapter>;
