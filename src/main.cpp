@@ -54,6 +54,14 @@
 #include "MultiNeighborhoodCollisionSystem.h"
 #include "NeighborhoodSystem.h"
 
+#include "FireCommand.h"
+#include "IObjectRepositoryImpl.h"
+#include "OrderInterpretCommand.h"
+#include "PlayerScopeManager.h"
+#include "StartMoveCommand.h"
+#include "StopMoveCommand.h"
+#include "SaveCommand.h"
+
 #include <chrono>
 #include <climits>
 #include <gtest/gtest.h>
@@ -1604,6 +1612,174 @@ TEST(CollisionsTestSuite, TestMultiNeighborhoodSystem)
 	std::cout.rdbuf(oldCoutBuffer);
 }
 
+TEST(InterpreterTestSuite, TestObjectRepository)
+{
+	auto iObjRep = std::make_shared<IObjectRepositoryImpl>();
+
+	const auto PlayerId1 = "Player 1";
+	const auto PlayerId2 = "Player 2";
+
+	const auto ObjectId11 = "Object 11";
+	const auto ObjectId12 = "Object 12";
+	const auto ObjectId21 = "Object 21";
+
+	UObjectPtr spaceship11 = std::make_shared<UObject>();
+	UObjectPtr spaceship12 = std::make_shared<UObject>();
+	UObjectPtr spaceship21 = std::make_shared<UObject>();
+
+	iObjRep->addObject(PlayerId1, ObjectId11, spaceship11);
+	iObjRep->addObject(PlayerId1, ObjectId12, spaceship12);
+	iObjRep->addObject(PlayerId2, ObjectId21, spaceship21);
+
+	EXPECT_EQ(iObjRep->getObject(PlayerId1, ObjectId11), spaceship11);
+	EXPECT_EQ(iObjRep->getObject(PlayerId1, ObjectId12), spaceship12);
+	EXPECT_EQ(iObjRep->getObject(PlayerId2, ObjectId21), spaceship21);
+}
+
+TEST(InterpreterTestSuite, TestPlayerScopeManager)
+{
+	auto iObjRep = std::make_shared<IObjectRepositoryImpl>();
+	PlayerScopeManagerPtr scopeManager = std::make_shared<PlayerScopeManager>(iObjRep);
+
+	const auto DefaultScope = "default";
+	const auto PlayerId1 = "Player 1";
+	const auto PlayerId2 = "Player 2";
+
+	EXPECT_EQ(scopeManager->getCurrentPlayer(), DefaultScope);
+	scopeManager->createPlayerScope(PlayerId1);
+	EXPECT_EQ(scopeManager->getCurrentPlayer(), DefaultScope);
+	scopeManager->setCurrentPlayerScope(PlayerId1);
+	EXPECT_EQ(scopeManager->getCurrentPlayer(), PlayerId1);
+
+	EXPECT_THROW(scopeManager->setCurrentPlayerScope(PlayerId2), std::runtime_error);
+	EXPECT_EQ(scopeManager->getCurrentPlayer(), PlayerId1);
+	scopeManager->createPlayerScope(PlayerId2);
+	scopeManager->setCurrentPlayerScope(PlayerId2);
+	EXPECT_EQ(scopeManager->getCurrentPlayer(), PlayerId2);
+	scopeManager->setDefaultScope();
+	EXPECT_EQ(scopeManager->getCurrentPlayer(), DefaultScope);
+	scopeManager->setCurrentPlayerScope(PlayerId1);
+	scopeManager->destroyPlayerScope(PlayerId1);
+	EXPECT_EQ(scopeManager->getCurrentPlayer(), DefaultScope);
+}
+
+TEST(InterpreterTestSuite, TestOrderInterpretCommand)
+{
+	const Vector InitialVelocityValue = {1, 1};
+	const int InitialAmmo = 7;
+
+	auto iObjRep = std::make_shared<IObjectRepositoryImpl>();
+	PlayerScopeManagerPtr scopeManager = std::make_shared<PlayerScopeManager>(iObjRep);
+
+	const auto DefaultScope = "default";
+	const auto PlayerId1 = "Player 1";
+	const auto PlayerId2 = "Player 2";
+
+	scopeManager->createPlayerScope(PlayerId1);
+	scopeManager->createPlayerScope(PlayerId2);
+
+	UObjectPtr spaceship1 = std::make_shared<UObject>();
+	UObjectPtr spaceship2 = std::make_shared<UObject>();
+
+	spaceship1->setProperty<Vector>(UObject::InitialVelocityProperty, InitialVelocityValue);
+	spaceship1->setProperty<Vector>(UObject::VelocityProperty, Vector(0, 0));
+	spaceship1->setProperty<int>(UObject::AmmoProperty, InitialAmmo);
+
+	const std::string ObjectId1 = "object1";
+	const std::string ObjectId2 = "object2";
+
+	iObjRep->addObject(PlayerId1, ObjectId1, spaceship1);
+	iObjRep->addObject(PlayerId2, ObjectId2, spaceship2);
+
+	UObjectPtr startMoveOrder = std::make_shared<UObject>();
+	startMoveOrder->setProperty<std::string>("id", ObjectId1);
+	startMoveOrder->setProperty<std::string>("action", "StartMove");
+
+	registerFactoryHelper("Command.StartMove", [](const std::vector<AnyValue>& args) -> ICommandPtr
+	{
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+		return std::make_shared<StartMoveCommand>(obj);
+	})->exec();
+
+	UObjectPtr fireOrder = std::make_shared<UObject>();
+	fireOrder->setProperty<std::string>("id", ObjectId1);
+	fireOrder->setProperty<std::string>("action", "Fire");
+
+	registerFactoryHelper("Command.Fire", [](const std::vector<AnyValue>& args) -> ICommandPtr
+	{
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+		return std::make_shared<FireCommand>(obj);
+	})->exec();
+
+	UObjectPtr StopMoveOrder = std::make_shared<UObject>();
+	StopMoveOrder->setProperty<std::string>("id", ObjectId1);
+	StopMoveOrder->setProperty<std::string>("action", "StopMove");
+
+	registerFactoryHelper("Command.StopMove", [](const std::vector<AnyValue>& args) -> ICommandPtr
+	{
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+		return std::make_shared<StopMoveCommand>(obj);
+	})->exec();
+
+	auto startCmd = std::make_shared<OrderInterpretCommand>(scopeManager, startMoveOrder, PlayerId1);
+	startCmd->exec();
+
+	auto velocity = spaceship1->getProperty<Vector>(UObject::VelocityProperty);
+	EXPECT_EQ(velocity, InitialVelocityValue);
+
+	auto fireCmd = std::make_shared<OrderInterpretCommand>(scopeManager, fireOrder, PlayerId1);
+	fireCmd->exec();
+
+	auto ammo = spaceship1->getProperty<int>(UObject::AmmoProperty);
+	EXPECT_EQ(ammo, InitialAmmo - 1);
+
+	auto finishCmd = std::make_shared<OrderInterpretCommand>(scopeManager, StopMoveOrder, PlayerId2);
+	EXPECT_THROW(finishCmd->exec(), std::runtime_error);
+
+	finishCmd = std::make_shared<OrderInterpretCommand>(scopeManager, StopMoveOrder, PlayerId1);
+	finishCmd->exec();
+
+	velocity = spaceship1->getProperty<Vector>(UObject::VelocityProperty);
+	EXPECT_EQ(velocity, Vector(0, 0));
+
+	UObjectPtr SystemOrder = std::make_shared<UObject>();
+	SystemOrder->setProperty<std::string>("action", "Save");
+
+    registerFactoryHelper("Command.CheckAvailable",
+        [](const std::vector<AnyValue>& args) -> bool {
+            std::string commandId = std::any_cast<std::string>(args[0]);
+
+            std::vector<std::string> commands = {
+                "Save", "Load"
+            };
+
+            auto cmd = std::find(commands.begin(), commands.end(), commandId);
+            return cmd != commands.end();
+        }
+    )->exec();
+
+	registerFactoryHelper("Command.Save", [](const std::vector<AnyValue>& args) -> ICommandPtr
+	{
+		auto obj = std::any_cast<UObjectPtr>(args[0]);
+		return std::make_shared<SaveCommand>(obj);
+	})->exec();
+
+	std::stringstream buffer;
+	std::streambuf* oldCoutBuffer = std::cout.rdbuf();
+
+	std::cout.rdbuf(buffer.rdbuf());
+
+	std::string output = buffer.str();
+	EXPECT_TRUE(output.find("Saved") == std::string::npos);
+
+	auto saveCmd = std::make_shared<OrderInterpretCommand>(scopeManager, SystemOrder, PlayerId1);
+	saveCmd->exec();
+
+	output = buffer.str();
+	EXPECT_TRUE(output.find("Saved") != std::string::npos);
+
+	std::cout.rdbuf(oldCoutBuffer);
+}
 
 int main(int argc, char** argv)
 {

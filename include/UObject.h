@@ -37,6 +37,9 @@ public:
 	static inline std::string AngleProperty = "angle";
 	static inline std::string AngularVelocityProperty = "angularVelocity";
 	static inline std::string FinishProperty = "finish";
+	static inline std::string InitialVelocityProperty = "initialVelocity";
+	static inline std::string AmmoProperty = "ammo";
+	static inline std::string CommandProperty = "command";
 
 private:
 	std::unordered_map<std::string, AnyValue> _properties;
